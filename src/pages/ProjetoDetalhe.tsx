@@ -23,6 +23,31 @@ export default function ProjetoDetalhe() {
   const [expandedCapitulos, setExpandedCapitulos] = useState<Set<string>>(new Set());
   const [materialPickerTarefa, setMaterialPickerTarefa] = useState<string | null>(null);
 
+  const tarefasFiltradas = useMemo(() => {
+    if (!projeto) return [];
+    let t = projeto.tarefas;
+    if (filtroFracao !== 'todas') t = t.filter(x => x.fracaoId === filtroFracao);
+    if (filtroCapitulo !== 'todos') t = t.filter(x => x.capitulo === filtroCapitulo);
+    return t;
+  }, [projeto?.tarefas, filtroFracao, filtroCapitulo]);
+
+  const capitulos = useMemo(() => {
+    if (!projeto) return [];
+    return [...new Set(projeto.tarefas.map(t => t.capitulo))];
+  }, [projeto?.tarefas]);
+
+  const tarefasAgrupadas = useMemo(() => {
+    const groups: Record<string, Record<string, TarefaCusto[]>> = {};
+    tarefasFiltradas.forEach(t => {
+      if (!groups[t.capitulo]) groups[t.capitulo] = {};
+      if (!groups[t.capitulo][t.subcapitulo]) groups[t.capitulo][t.subcapitulo] = [];
+      groups[t.capitulo][t.subcapitulo].push(t);
+    });
+    return groups;
+  }, [tarefasFiltradas]);
+
+  const resumo = calcularResumo(tarefasFiltradas);
+
   if (!projeto) {
     return (
       <div className="page-container">
