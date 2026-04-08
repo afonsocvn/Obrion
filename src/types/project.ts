@@ -4,9 +4,13 @@ export type NivelQualidade = 'Básico' | 'Médio' | 'Premium';
 export interface AreasFracao {
   sala: number;
   quartos: number;
+  numQuartos: number;
   casasBanho: number;
+  numCasasBanho: number;
   cozinha: number;
   varandas: number;
+  circulacao: number;
+  zonaExterior: number;
 }
 
 export interface Fracao {

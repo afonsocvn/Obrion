@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Plus, Trash2, ArrowLeft } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
-const defaultAreas: AreasFracao = { sala: 25, quartos: 14, casasBanho: 6, cozinha: 10, varandas: 5 };
+const defaultAreas: AreasFracao = { sala: 25, quartos: 14, numQuartos: 2, casasBanho: 6, numCasasBanho: 1, cozinha: 10, varandas: 5, circulacao: 8, zonaExterior: 0 };
 
 export default function NovoProjeto() {
   const { adicionarProjeto } = useApp();
@@ -128,14 +128,50 @@ export default function NovoProjeto() {
                 </div>
               </div>
 
+              <p className="text-xs text-muted-foreground mb-2 font-medium">Quantidade</p>
+              <div className="grid grid-cols-2 sm:grid-cols-2 gap-3 mb-4">
+                {([
+                  ['numQuartos', 'Nº de Quartos'],
+                  ['numCasasBanho', 'Nº de Casas de Banho'],
+                ] as const).map(([key, label]) => (
+                  <div key={key}>
+                    <Label className="text-xs">{label}</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={fracao.areas[key]}
+                      onChange={e => atualizarArea(fracao.id, key, Math.max(0, Number(e.target.value)))}
+                      className="mt-1 mono text-sm"
+                    />
+                  </div>
+                ))}
+              </div>
+
               <p className="text-xs text-muted-foreground mb-2 font-medium">Áreas (m²)</p>
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
                 {([
                   ['sala', 'Sala'],
-                  ['quartos', 'Quartos'],
-                  ['casasBanho', 'Casas de Banho'],
+                  ['quartos', 'Quartos (total)'],
+                  ['casasBanho', 'Casas de Banho (total)'],
                   ['cozinha', 'Cozinha'],
+                ] as const).map(([key, label]) => (
+                  <div key={key}>
+                    <Label className="text-xs">{label}</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={fracao.areas[key]}
+                      onChange={e => atualizarArea(fracao.id, key, Math.max(0, Number(e.target.value)))}
+                      className="mt-1 mono text-sm"
+                    />
+                  </div>
+                ))}
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {([
                   ['varandas', 'Varandas'],
+                  ['circulacao', 'Circulação'],
+                  ['zonaExterior', 'Zona Exterior'],
                 ] as const).map(([key, label]) => (
                   <div key={key}>
                     <Label className="text-xs">{label}</Label>

@@ -24,6 +24,8 @@ const areaMultipliers = {
   sala: 'sala' as const,
   quartos: 'quartos' as const,
   varandas: 'varandas' as const,
+  circulacao: 'circulacao' as const,
+  zonaExterior: 'zonaExterior' as const,
   total: 'total' as const,
 };
 
@@ -53,6 +55,15 @@ const templates: TarefaTemplate[] = [
   { capitulo: 'Acabamentos Interiores', subcapitulo: 'Varandas', tarefa: 'Impermeabilização', unidade: 'm²', areaKey: 'varandas', custoMaterialBase: 15, custoMaoObraBase: 10, margemBase: 15 },
   { capitulo: 'Acabamentos Interiores', subcapitulo: 'Varandas', tarefa: 'Revestimento pavimento', unidade: 'm²', areaKey: 'varandas', custoMaterialBase: 20, custoMaoObraBase: 12, margemBase: 15 },
   { capitulo: 'Acabamentos Interiores', subcapitulo: 'Varandas', tarefa: 'Guardas e acabamentos', unidade: 'ml', areaKey: 'varandas', custoMaterialBase: 80, custoMaoObraBase: 45, margemBase: 15 },
+  // Circulação
+  { capitulo: 'Acabamentos Interiores', subcapitulo: 'Circulação', tarefa: 'Pavimento', unidade: 'm²', areaKey: 'circulacao', custoMaterialBase: 18, custoMaoObraBase: 10, margemBase: 15 },
+  { capitulo: 'Acabamentos Interiores', subcapitulo: 'Circulação', tarefa: 'Pintura', unidade: 'm²', areaKey: 'circulacao', custoMaterialBase: 5, custoMaoObraBase: 7, margemBase: 15 },
+  { capitulo: 'Acabamentos Interiores', subcapitulo: 'Circulação', tarefa: 'Trabalhos elétricos', unidade: 'vg.', areaKey: 'circulacao', custoMaterialBase: 100, custoMaoObraBase: 180, margemBase: 15 },
+  // Zona Exterior
+  { capitulo: 'Acabamentos Exteriores', subcapitulo: 'Zona Exterior', tarefa: 'Pavimento exterior', unidade: 'm²', areaKey: 'zonaExterior', custoMaterialBase: 22, custoMaoObraBase: 14, margemBase: 15 },
+  { capitulo: 'Acabamentos Exteriores', subcapitulo: 'Zona Exterior', tarefa: 'Iluminação exterior', unidade: 'vg.', areaKey: 'zonaExterior', custoMaterialBase: 200, custoMaoObraBase: 150, margemBase: 15 },
+  { capitulo: 'Acabamentos Exteriores', subcapitulo: 'Zona Exterior', tarefa: 'Vedação e portões', unidade: 'ml', areaKey: 'zonaExterior', custoMaterialBase: 90, custoMaoObraBase: 55, margemBase: 15 },
+  { capitulo: 'Acabamentos Exteriores', subcapitulo: 'Zona Exterior', tarefa: 'Arranjos exteriores e jardim', unidade: 'm²', areaKey: 'zonaExterior', custoMaterialBase: 12, custoMaoObraBase: 10, margemBase: 15 },
   // Estrutura e zonas comuns
   { capitulo: 'Estrutura e Envolvente', subcapitulo: 'Cobertura', tarefa: 'Impermeabilização de cobertura', unidade: 'm²', areaKey: 'total', custoMaterialBase: 18, custoMaoObraBase: 12, margemBase: 15 },
   { capitulo: 'Estrutura e Envolvente', subcapitulo: 'Cobertura', tarefa: 'Isolamento térmico', unidade: 'm²', areaKey: 'total', custoMaterialBase: 14, custoMaoObraBase: 8, margemBase: 15 },
@@ -65,14 +76,18 @@ const templates: TarefaTemplate[] = [
 
 function getQuantidade(template: TarefaTemplate, fracao: Fracao): number {
   if (template.areaKey === 'total') {
-    const total = Object.values(fracao.areas).reduce((s, v) => s + v, 0);
-    // For structure/common areas, use fraction of total
+    const { numQuartos, numCasasBanho, ...areaValues } = fracao.areas;
+    const total = Object.values(areaValues).reduce((s, v) => s + v, 0);
     return Math.max(total * 0.3, 1);
   }
   const area = fracao.areas[template.areaKey as keyof typeof fracao.areas];
-  // For 'vg.' (verba global) and 'un.', use count based on area
   if (template.unidade === 'vg.') return 1;
-  if (template.unidade === 'un.') return Math.max(Math.ceil(area / 5), 1);
+  if (template.unidade === 'un.') {
+    // Use actual count for rooms/bathrooms
+    if (template.areaKey === 'casasBanho') return Math.max(fracao.areas.numCasasBanho * 3, 1);
+    if (template.areaKey === 'quartos') return Math.max(fracao.areas.numQuartos, 1);
+    return Math.max(Math.ceil(area / 5), 1);
+  }
   if (template.unidade === 'ml') return Math.max(Math.ceil(Math.sqrt(area) * 4), 1);
   return Math.max(area, 1);
 }
