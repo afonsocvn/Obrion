@@ -18,7 +18,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { carregando } = useApp();
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex h-screen overflow-hidden">
       {/* Sidebar */}
       <aside className="w-60 bg-sidebar text-sidebar-foreground flex flex-col border-r border-sidebar-border shrink-0">
         <div className="px-5 py-5 flex items-center gap-2.5">
