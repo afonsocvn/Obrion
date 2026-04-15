@@ -16,6 +16,7 @@ interface AppContextType {
   eliminarProjeto: (id: string) => void;
   duplicarProjeto: (id: string) => void;
   adicionarMaterial: (m: Material) => void;
+  importarMateriais: (ms: Material[]) => void;
   atualizarMaterial: (m: Material) => void;
   eliminarMaterial: (id: string) => void;
   adicionarMaoDeObra: (m: MaoDeObra) => void;
@@ -236,6 +237,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     supabase.from('materiais').insert(materialToRow(m, user.id)).then(() => {});
   }, [user]);
 
+  const importarMateriais = useCallback((ms: Material[]) => {
+    if (!user) return;
+    setMateriaisState((prev) => [...prev, ...ms]);
+    supabase.from('materiais').insert(ms.map(m => materialToRow(m, user.id))).then(() => {});
+  }, [user]);
+
   const atualizarMaterial = useCallback((m: Material) => {
     if (!user) return;
     setMateriaisState((prev) => prev.map((x) => (x.id === m.id ? m : x)));
@@ -296,6 +303,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       eliminarProjeto,
       duplicarProjeto,
       adicionarMaterial,
+      importarMateriais,
       atualizarMaterial,
       eliminarMaterial,
       adicionarMaoDeObra,

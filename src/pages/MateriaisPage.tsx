@@ -299,7 +299,7 @@ function MaterialFormDialog({ onClose, onSave, initial }: { onClose: () => void;
 }
 
 function ImportExcelDialog({ onClose }: { onClose: () => void }) {
-  const { adicionarMaterial } = useApp();
+  const { importarMateriais } = useApp();
   const fileRef = useRef<HTMLInputElement>(null);
   const [rows, setRows] = useState<any[]>([]);
   const [headers, setHeaders] = useState<string[]>([]);
@@ -352,7 +352,7 @@ function ImportExcelDialog({ onClose }: { onClose: () => void }) {
   };
 
   const confirmarImportacao = () => {
-    preview.forEach(m => adicionarMaterial(m));
+    importarMateriais(preview);
     onClose();
   };
 
@@ -412,7 +412,7 @@ function ImportExcelDialog({ onClose }: { onClose: () => void }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {preview.slice(0, 20).map(m => (
+                  {preview.slice(0, 50).map(m => (
                     <tr key={m.id}>
                       <td className="text-sm">{m.nome}</td>
                       <td className="text-sm">{m.categoria}</td>
@@ -423,7 +423,7 @@ function ImportExcelDialog({ onClose }: { onClose: () => void }) {
                   ))}
                 </tbody>
               </table>
-              {preview.length > 20 && <p className="text-xs text-muted-foreground text-center py-2">... e mais {preview.length - 20} materiais</p>}
+              {preview.length > 50 && <p className="text-xs text-muted-foreground text-center py-2">... e mais {preview.length - 50} materiais</p>}
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setStep('map')}>Voltar</Button>
