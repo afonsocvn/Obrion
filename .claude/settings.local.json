@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc:*)",
+      "Bash(npx vite:*)",
+      "Bash(npm run:*)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(netstat -ano)",
+      "Bash(findstr :8080)",
+      "Bash(tasklist:*)",
+      "Bash(powershell Get-Process -Id 20380 | Select-Object Name, Id, Path:*)",
+      "Bash(powershell Stop-Process -Id 20380 -Force:*)",
+      "Bash(node_modules/.bin/tsc --noEmit)",
+      "Bash(npm install:*)",
+      "Bash(npm list:*)"
+    ]
+  }
+}
