@@ -20,6 +20,7 @@ interface AppContextType {
   atualizarMaterial: (m: Material) => void;
   eliminarMaterial: (id: string) => void;
   adicionarMaoDeObra: (m: MaoDeObra) => void;
+  importarMaoDeObra: (ms: MaoDeObra[]) => void;
   atualizarMaoDeObra: (m: MaoDeObra) => void;
   eliminarMaoDeObra: (id: string) => void;
   adicionarTemplate: (t: TemplateDivisao) => void;
@@ -263,6 +264,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     supabase.from('mao_de_obra').insert(maoDeObraToRow(m, user.id)).then(() => {});
   }, [user]);
 
+  const importarMaoDeObra = useCallback((ms: MaoDeObra[]) => {
+    if (!user) return;
+    setMaoDeObraState((prev) => [...prev, ...ms]);
+    supabase.from('mao_de_obra').insert(ms.map(m => maoDeObraToRow(m, user.id))).then(() => {});
+  }, [user]);
+
   const atualizarMaoDeObra = useCallback((m: MaoDeObra) => {
     if (!user) return;
     setMaoDeObraState((prev) => prev.map((x) => (x.id === m.id ? m : x)));
@@ -307,6 +314,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       atualizarMaterial,
       eliminarMaterial,
       adicionarMaoDeObra,
+      importarMaoDeObra,
       atualizarMaoDeObra,
       eliminarMaoDeObra,
       adicionarTemplate,

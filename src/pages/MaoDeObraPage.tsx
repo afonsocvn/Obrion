@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import { MaoDeObra, CATEGORIAS_MAO_DE_OBRA } from '@/types/project';
 import { v4, formatCurrency } from '@/lib/utils';
@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
-import { Plus, Trash2, Search, Pencil, HelpCircle, Download } from 'lucide-react';
+import { Plus, Trash2, Search, Pencil, HelpCircle, Download, Upload, Check, FileSpreadsheet } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import * as XLSX from 'xlsx';
 
@@ -34,6 +34,7 @@ function exportarExcel(lista: MaoDeObra[]) {
 export default function MaoDeObraPage() {
   const { maoDeObra, adicionarMaoDeObra, atualizarMaoDeObra, eliminarMaoDeObra } = useApp();
   const [showForm, setShowForm] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [editItem, setEditItem] = useState<MaoDeObra | null>(null);
   const [filtroCategoria, setFiltroCategoria] = useState('todas');
   const [pesquisa, setPesquisa] = useState('');
@@ -52,6 +53,10 @@ export default function MaoDeObraPage() {
           <p className="section-subtitle mt-1">{maoDeObra.length} registos</p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setShowImport(true)}>
+            <Upload className="h-4 w-4 mr-2" />
+            Importar Excel
+          </Button>
           <Button variant="outline" onClick={() => exportarExcel(filtrados)}>
             <Download className="h-4 w-4 mr-2" />
             Exportar Excel
@@ -139,6 +144,7 @@ export default function MaoDeObraPage() {
         </div>
       </Card>
 
+      {showImport && <ImportExcelDialog onClose={() => setShowImport(false)} />}
       {showForm && (
         <MaoDeObraFormDialog onClose={() => setShowForm(false)} onSave={(m) => { adicionarMaoDeObra(m); setShowForm(false); }} />
       )}
@@ -150,6 +156,144 @@ export default function MaoDeObraPage() {
         />
       )}
     </div>
+  );
+}
+
+function ImportExcelDialog({ onClose }: { onClose: () => void }) {
+  const { importarMaoDeObra } = useApp();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [rows, setRows] = useState<any[]>([]);
+  const [headers, setHeaders] = useState<string[]>([]);
+  const [mapping, setMapping] = useState<Record<string, string>>({});
+  const [step, setStep] = useState<'upload' | 'map' | 'preview'>('upload');
+  const [preview, setPreview] = useState<MaoDeObra[]>([]);
+
+  const fields = [
+    { key: 'nome',          label: 'Nome / Descrição', required: true },
+    { key: 'categoria',     label: 'Categoria' },
+    { key: 'unidade',       label: 'Unidade' },
+    { key: 'precoUnitario', label: 'Preço Unitário' },
+    { key: 'subcontratado', label: 'Subcontratado (Sim/Não)' },
+    { key: 'notas',         label: 'Notas' },
+  ];
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const wb = XLSX.read(ev.target?.result, { type: 'binary' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const data = XLSX.utils.sheet_to_json(ws) as any[];
+      if (data.length > 0) {
+        setHeaders(Object.keys(data[0]));
+        setRows(data);
+        setStep('map');
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const gerarPreview = () => {
+    const lista: MaoDeObra[] = rows.map(row => ({
+      id: v4(),
+      nome: String(row[mapping.nome] || ''),
+      categoria: String(row[mapping.categoria] || CATEGORIAS_MAO_DE_OBRA[0]),
+      unidade: String(row[mapping.unidade] || 'm²'),
+      precoUnitario: Number(row[mapping.precoUnitario]) || 0,
+      subcontratado: String(row[mapping.subcontratado] || '').toLowerCase() === 'sim',
+      notas: String(row[mapping.notas] || ''),
+    })).filter(m => m.nome.trim());
+    setPreview(lista);
+    setStep('preview');
+  };
+
+  const confirmarImportacao = () => {
+    importarMaoDeObra(preview);
+    onClose();
+  };
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>
+            {step === 'upload' && 'Importar Ficheiro Excel'}
+            {step === 'map' && 'Mapear Colunas'}
+            {step === 'preview' && `Pré-visualização (${preview.length} registos)`}
+          </DialogTitle>
+        </DialogHeader>
+
+        {step === 'upload' && (
+          <div className="flex flex-col items-center py-8">
+            <FileSpreadsheet className="h-12 w-12 text-muted-foreground mb-4" />
+            <p className="text-sm text-muted-foreground mb-4">Selecione um ficheiro .xlsx com os dados de mão de obra</p>
+            <input ref={fileRef} type="file" accept=".xlsx,.xls" onChange={handleFile} className="hidden" />
+            <Button onClick={() => fileRef.current?.click()}>Selecionar Ficheiro</Button>
+          </div>
+        )}
+
+        {step === 'map' && (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">{rows.length} linhas encontradas. Mapeie as colunas:</p>
+            {fields.map(f => (
+              <div key={f.key} className="flex items-center gap-3">
+                <span className="text-sm w-40 shrink-0">{f.label}{f.required ? ' *' : ''}</span>
+                <select
+                  className="flex-1 h-8 text-sm rounded-md border border-input bg-white px-2"
+                  value={mapping[f.key] || ''}
+                  onChange={e => setMapping(m => ({ ...m, [f.key]: e.target.value }))}
+                >
+                  <option value="">— ignorar —</option>
+                  {headers.map(h => <option key={h} value={h}>{h}</option>)}
+                </select>
+              </div>
+            ))}
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setStep('upload')}>Voltar</Button>
+              <Button onClick={gerarPreview} disabled={!mapping.nome}>Pré-visualizar</Button>
+            </div>
+          </div>
+        )}
+
+        {step === 'preview' && (
+          <div>
+            <div className="max-h-64 overflow-auto mb-4">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Nome</th>
+                    <th>Categoria</th>
+                    <th>Unidade</th>
+                    <th className="text-right">Preço</th>
+                    <th>Subcontratado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {preview.slice(0, 50).map(m => (
+                    <tr key={m.id}>
+                      <td className="text-sm">{m.nome}</td>
+                      <td className="text-sm">{m.categoria}</td>
+                      <td className="text-sm">{m.unidade}</td>
+                      <td className="text-right mono text-sm">{formatCurrency(m.precoUnitario)}</td>
+                      <td className="text-sm">{m.subcontratado ? 'Sim' : 'Não'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {preview.length > 50 && <p className="text-xs text-muted-foreground text-center py-2">... e mais {preview.length - 50} registos</p>}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setStep('map')}>Voltar</Button>
+              <Button onClick={confirmarImportacao}>
+                <Check className="h-4 w-4 mr-1.5" />
+                Importar {preview.length} registos
+              </Button>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
