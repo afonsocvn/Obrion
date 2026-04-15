@@ -1,11 +1,12 @@
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, FolderPlus, Package, Building2 } from 'lucide-react';
+import { LayoutDashboard, FolderPlus, Package, Building2, HardHat } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/novo-projeto', label: 'Novo Projeto', icon: FolderPlus },
   { to: '/materiais', label: 'Materiais', icon: Package },
+  { to: '/mao-de-obra', label: 'Mão de Obra', icon: HardHat },
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -17,7 +18,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <aside className="w-60 bg-sidebar text-sidebar-foreground flex flex-col border-r border-sidebar-border shrink-0">
         <div className="px-5 py-5 flex items-center gap-2.5">
           <Building2 className="h-6 w-6 text-sidebar-primary" />
-          <span className="text-lg font-semibold tracking-tight">ConstruPlan</span>
+          <span className="text-lg font-semibold tracking-tight">Obrion</span>
         </div>
         <nav className="flex-1 px-3 py-2 space-y-0.5">
           {navItems.map((item) => {

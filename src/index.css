@@ -132,3 +132,41 @@
     font-family: 'JetBrains Mono', monospace;
   }
 }
+
+@media print {
+  /* Hide sidebar/nav */
+  aside, nav, [data-sidebar] {
+    display: none !important;
+  }
+
+  /* Make content full width */
+  body, main, #root, #root > * {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Page setup */
+  @page {
+    size: A4 landscape;
+    margin: 1.2cm 1cm;
+  }
+
+  /* Fraction cards: wrap instead of scroll in print */
+  .print\:flex-wrap {
+    flex-wrap: wrap !important;
+    overflow: visible !important;
+  }
+
+  /* Give recharts ResponsiveContainer a concrete size so charts render */
+  .recharts-responsive-container {
+    width: 100% !important;
+    height: 240px !important;
+  }
+
+  /* Avoid breaking rows across pages */
+  tr {
+    page-break-inside: avoid;
+  }
+}

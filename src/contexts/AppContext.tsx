@@ -1,10 +1,12 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
-import { Projeto, Material } from '@/types/project';
-import { carregarProjetos, guardarProjetos, carregarMateriais, guardarMateriais } from '@/lib/storage';
+import { Projeto, Material, MaoDeObra, TemplateDivisao } from '@/types/project';
+import { carregarProjetos, guardarProjetos, carregarMateriais, guardarMateriais, carregarMaoDeObra, guardarMaoDeObra, carregarTemplates, guardarTemplates } from '@/lib/storage';
+import { migrarProjetos } from '@/lib/migrations';
 
 interface AppContextType {
   projetos: Projeto[];
   materiais: Material[];
+  maoDeObra: MaoDeObra[];
   setProjetos: (p: Projeto[] | ((prev: Projeto[]) => Projeto[])) => void;
   setMateriais: (m: Material[] | ((prev: Material[]) => Material[])) => void;
   adicionarProjeto: (p: Projeto) => void;
@@ -14,16 +16,26 @@ interface AppContextType {
   adicionarMaterial: (m: Material) => void;
   atualizarMaterial: (m: Material) => void;
   eliminarMaterial: (id: string) => void;
+  adicionarMaoDeObra: (m: MaoDeObra) => void;
+  atualizarMaoDeObra: (m: MaoDeObra) => void;
+  eliminarMaoDeObra: (id: string) => void;
+  templates: TemplateDivisao[];
+  adicionarTemplate: (t: TemplateDivisao) => void;
+  eliminarTemplate: (id: string) => void;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
-  const [projetos, setProjetosState] = useState<Projeto[]>(carregarProjetos);
+  const [projetos, setProjetosState] = useState<Projeto[]>(() => migrarProjetos(carregarProjetos()));
   const [materiais, setMateriaisState] = useState<Material[]>(carregarMateriais);
+  const [maoDeObraState, setMaoDeObraState] = useState<MaoDeObra[]>(carregarMaoDeObra);
+  const [templatesState, setTemplatesState] = useState<TemplateDivisao[]>(carregarTemplates);
 
   useEffect(() => { guardarProjetos(projetos); }, [projetos]);
   useEffect(() => { guardarMateriais(materiais); }, [materiais]);
+  useEffect(() => { guardarMaoDeObra(maoDeObraState); }, [maoDeObraState]);
+  useEffect(() => { guardarTemplates(templatesState); }, [templatesState]);
 
   const setProjetos = useCallback((p: Projeto[] | ((prev: Projeto[]) => Projeto[])) => {
     setProjetosState(p);
@@ -71,11 +83,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setMateriaisState(prev => prev.filter(x => x.id !== id));
   }, []);
 
+  const adicionarMaoDeObra = useCallback((m: MaoDeObra) => {
+    setMaoDeObraState(prev => [...prev, m]);
+  }, []);
+
+  const atualizarMaoDeObra = useCallback((m: MaoDeObra) => {
+    setMaoDeObraState(prev => prev.map(x => x.id === m.id ? m : x));
+  }, []);
+
+  const eliminarMaoDeObra = useCallback((id: string) => {
+    setMaoDeObraState(prev => prev.filter(x => x.id !== id));
+  }, []);
+
+  const adicionarTemplate = useCallback((t: TemplateDivisao) => {
+    setTemplatesState(prev => [...prev, t]);
+  }, []);
+
+  const eliminarTemplate = useCallback((id: string) => {
+    setTemplatesState(prev => prev.filter(x => x.id !== id));
+  }, []);
+
   return (
     <AppContext.Provider value={{
-      projetos, materiais, setProjetos, setMateriais,
+      projetos, materiais, maoDeObra: maoDeObraState, templates: templatesState, setProjetos, setMateriais,
       adicionarProjeto, atualizarProjeto, eliminarProjeto, duplicarProjeto,
       adicionarMaterial, atualizarMaterial, eliminarMaterial,
+      adicionarMaoDeObra, atualizarMaoDeObra, eliminarMaoDeObra,
+      adicionarTemplate, eliminarTemplate,
     }}>
       {children}
     </AppContext.Provider>

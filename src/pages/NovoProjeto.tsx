@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '@/contexts/AppContext';
-import { Fracao, Projeto, TIPOLOGIAS, NIVEIS_QUALIDADE, AreasFracao } from '@/types/project';
+import { Fracao, Projeto, Divisao, TIPOLOGIAS, NIVEIS_QUALIDADE, TIPOS_DIVISAO, TipoDivisao } from '@/types/project';
 import { v4 } from '@/lib/utils';
 import { gerarTarefas } from '@/lib/wbs';
 import { Button } from '@/components/ui/button';
@@ -9,23 +9,76 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Plus, Trash2, ArrowLeft } from 'lucide-react';
+import { Plus, Trash2, ArrowLeft, Building2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
-const defaultAreas: AreasFracao = { sala: 25, quartos: 14, numQuartos: 2, casasBanho: 6, numCasasBanho: 1, cozinha: 10, varandas: 5, circulacao: 8, zonaExterior: 0 };
+function NumericInput({ value, min, max, step, onChange, className, title }: {
+  value: number;
+  min?: number;
+  max?: number;
+  step?: number;
+  onChange: (v: number) => void;
+  className?: string;
+  title?: string;
+}) {
+  const [raw, setRaw] = useState(String(value));
+  useEffect(() => { setRaw(String(value)); }, [value]);
+  return (
+    <Input
+      type="text"
+      inputMode="decimal"
+      value={raw}
+      className={`${className} [appearance:textfield]`}
+      title={title}
+      onChange={e => setRaw(e.target.value)}
+      onBlur={() => {
+        const n = parseFloat(raw.replace(',', '.'));
+        if (isNaN(n)) { setRaw(String(value)); return; }
+        const clamped = min !== undefined ? Math.max(min, max !== undefined ? Math.min(max, n) : n) : n;
+        onChange(clamped);
+        setRaw(String(clamped));
+      }}
+    />
+  );
+}
+
+const defaultDivisoes = (): Divisao[] => [
+  { id: v4(), tipo: 'Sala', area: 25, peDireito: 2.7 },
+  { id: v4(), tipo: 'Quarto', area: 14, peDireito: 2.7 },
+  { id: v4(), tipo: 'Quarto', area: 12, peDireito: 2.7 },
+  { id: v4(), tipo: 'Casa de Banho', area: 6, peDireito: 2.7 },
+  { id: v4(), tipo: 'Cozinha', area: 10, peDireito: 2.7 },
+  { id: v4(), tipo: 'Circulação', area: 8, peDireito: 2.7 },
+];
 
 export default function NovoProjeto() {
   const { adicionarProjeto } = useApp();
   const navigate = useNavigate();
   const [nome, setNome] = useState('');
   const [fracoes, setFracoes] = useState<Fracao[]>([
-    { id: v4(), nome: 'Fração A', tipologia: 'T2', areas: { ...defaultAreas }, qualidade: 'Médio' },
+    { id: v4(), nome: 'Fração A', tipologia: 'T2', divisoes: defaultDivisoes(), qualidade: 'Médio', quantidade: 1 },
   ]);
 
   const adicionarFracao = () => {
     setFracoes(prev => [
       ...prev,
-      { id: v4(), nome: `Fração ${String.fromCharCode(65 + prev.length)}`, tipologia: 'T2', areas: { ...defaultAreas }, qualidade: 'Médio' },
+      { id: v4(), tipo: 'Fracao' as const, nome: `Fração ${String.fromCharCode(65 + prev.length)}`, tipologia: 'T2', divisoes: defaultDivisoes(), qualidade: 'Médio', quantidade: 1 },
+    ]);
+  };
+
+  const adicionarZonaComum = () => {
+    const numZonasComuns = fracoes.filter(f => f.tipo === 'ZonaComum').length;
+    setFracoes(prev => [
+      ...prev,
+      {
+        id: v4(),
+        tipo: 'ZonaComum' as const,
+        nome: `Zona Comum ${numZonasComuns + 1}`,
+        tipologia: 'T0',
+        divisoes: [{ id: v4(), tipo: 'Sala' as TipoDivisao, area: 50, peDireito: 2.7 }],
+        qualidade: 'Médio',
+        quantidade: 1,
+      },
     ]);
   };
 
@@ -38,8 +91,22 @@ export default function NovoProjeto() {
     setFracoes(prev => prev.map(f => f.id === id ? { ...f, ...updates } : f));
   };
 
-  const atualizarArea = (id: string, key: keyof AreasFracao, value: number) => {
-    setFracoes(prev => prev.map(f => f.id === id ? { ...f, areas: { ...f.areas, [key]: value } } : f));
+  const adicionarDivisao = (fracaoId: string) => {
+    setFracoes(prev => prev.map(f =>
+      f.id === fracaoId ? { ...f, divisoes: [...f.divisoes, { id: v4(), tipo: 'Quarto' as TipoDivisao, area: 12, peDireito: 2.7 }] } : f
+    ));
+  };
+
+  const removerDivisao = (fracaoId: string, divisaoId: string) => {
+    setFracoes(prev => prev.map(f =>
+      f.id === fracaoId ? { ...f, divisoes: f.divisoes.filter(d => d.id !== divisaoId) } : f
+    ));
+  };
+
+  const atualizarDivisao = (fracaoId: string, divisaoId: string, updates: Partial<Divisao>) => {
+    setFracoes(prev => prev.map(f =>
+      f.id === fracaoId ? { ...f, divisoes: f.divisoes.map(d => d.id === divisaoId ? { ...d, ...updates } : d) } : f
+    ));
   };
 
   const criarProjeto = () => {
@@ -70,7 +137,7 @@ export default function NovoProjeto() {
         </div>
       </div>
 
-      <div className="max-w-4xl space-y-6">
+      <div className="max-w-6xl space-y-6">
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Informação do Projeto</CardTitle>
@@ -103,7 +170,7 @@ export default function NovoProjeto() {
                 )}
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-4">
                 <div>
                   <Label>Nome</Label>
                   <Input value={fracao.nome} onChange={e => atualizarFracao(fracao.id, { nome: e.target.value })} className="mt-1" />
@@ -126,65 +193,72 @@ export default function NovoProjeto() {
                     </SelectContent>
                   </Select>
                 </div>
+                <div>
+                  <Label>Nº de frações</Label>
+                  <NumericInput
+                    min={1}
+                    step={1}
+                    value={fracao.quantidade}
+                    onChange={v => atualizarFracao(fracao.id, { quantidade: Math.round(v) })}
+                    className="mt-1 mono"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">Para o total do projeto</p>
+                </div>
               </div>
 
-              <p className="text-xs text-muted-foreground mb-2 font-medium">Quantidade</p>
-              <div className="grid grid-cols-2 sm:grid-cols-2 gap-3 mb-4">
-                {([
-                  ['numQuartos', 'Nº de Quartos'],
-                  ['numCasasBanho', 'Nº de Casas de Banho'],
-                ] as const).map(([key, label]) => (
-                  <div key={key}>
-                    <Label className="text-xs">{label}</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      value={fracao.areas[key]}
-                      onChange={e => atualizarArea(fracao.id, key, Math.max(0, Number(e.target.value)))}
-                      className="mt-1 mono text-sm"
-                    />
-                  </div>
-                ))}
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs text-muted-foreground font-medium">Divisões</p>
+                <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => adicionarDivisao(fracao.id)}>
+                  <Plus className="h-3 w-3 mr-1" />
+                  Adicionar Divisão
+                </Button>
               </div>
-
-              <p className="text-xs text-muted-foreground mb-2 font-medium">Áreas (m²)</p>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
-                {([
-                  ['sala', 'Sala'],
-                  ['quartos', 'Quartos (total)'],
-                  ['casasBanho', 'Casas de Banho (total)'],
-                  ['cozinha', 'Cozinha'],
-                ] as const).map(([key, label]) => (
-                  <div key={key}>
-                    <Label className="text-xs">{label}</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      value={fracao.areas[key]}
-                      onChange={e => atualizarArea(fracao.id, key, Math.max(0, Number(e.target.value)))}
-                      className="mt-1 mono text-sm"
-                    />
-                  </div>
-                ))}
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {([
-                  ['varandas', 'Varandas'],
-                  ['circulacao', 'Circulação'],
-                  ['zonaExterior', 'Zona Exterior'],
-                ] as const).map(([key, label]) => (
-                  <div key={key}>
-                    <Label className="text-xs">{label}</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      value={fracao.areas[key]}
-                      onChange={e => atualizarArea(fracao.id, key, Math.max(0, Number(e.target.value)))}
-                      className="mt-1 mono text-sm"
-                    />
-                  </div>
-                ))}
-              </div>
+              {fracao.divisoes.length > 0 && (
+                <div className="grid gap-1" style={{ gridTemplateColumns: '1fr 160px 160px 32px' }}>
+                  <span className="text-xs text-muted-foreground px-1">Tipo</span>
+                  <span className="text-xs text-muted-foreground px-1">Área (m²)</span>
+                  <span className="text-xs text-muted-foreground px-1">Pé direito (m)</span>
+                  <span />
+                  {fracao.divisoes.map(divisao => (
+                    <>
+                      <Select key={divisao.id + '-tipo'} value={divisao.tipo} onValueChange={v => atualizarDivisao(fracao.id, divisao.id, { tipo: v as TipoDivisao })}>
+                        <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {TIPOS_DIVISAO.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                      <NumericInput
+                        key={divisao.id + '-area'}
+                        min={0}
+                        value={divisao.area}
+                        onChange={v => atualizarDivisao(fracao.id, divisao.id, { area: v })}
+                        className="h-9 mono text-sm w-full"
+                      />
+                      <NumericInput
+                        key={divisao.id + '-pd'}
+                        min={1.5}
+                        max={6}
+                        step={0.1}
+                        value={divisao.peDireito}
+                        onChange={v => atualizarDivisao(fracao.id, divisao.id, { peDireito: v })}
+                        className="h-9 mono text-sm w-full"
+                      />
+                      <Button
+                        key={divisao.id + '-del'}
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-8 text-destructive"
+                        onClick={() => removerDivisao(fracao.id, divisao.id)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </>
+                  ))}
+                </div>
+              )}
+              {fracao.divisoes.length === 0 && (
+                <p className="text-xs text-muted-foreground italic py-2">Nenhuma divisão adicionada.</p>
+              )}
             </CardContent>
           </Card>
         ))}

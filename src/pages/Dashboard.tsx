@@ -1,14 +1,36 @@
+import { useState, useMemo } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import { Link } from 'react-router-dom';
 import { Plus, Copy, Trash2, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { formatCurrency } from '@/lib/utils';
 import { calcularResumo } from '@/lib/wbs';
+import { CATEGORIAS_MATERIAL, TIPOS_MATERIAL } from '@/types/project';
 import CostDistributionChart from '@/components/CostDistributionChart';
+import { resolverGama, GamaBadge } from '@/pages/MateriaisPage';
 
 export default function Dashboard() {
-  const { projetos, duplicarProjeto, eliminarProjeto } = useApp();
+  const { projetos, duplicarProjeto, eliminarProjeto, materiais } = useApp();
+
+  const [filtroCategoria, setFiltroCategoria] = useState('todas');
+  const [filtroMaterial, setFiltroMaterial] = useState('todos');
+  const [confirmarEliminar, setConfirmarEliminar] = useState<string | null>(null);
+
+  const tiposDisponiveis = filtroCategoria !== 'todas' ? (TIPOS_MATERIAL[filtroCategoria] ?? []) : [];
+
+  const materiaisFiltrados = useMemo(() => materiais.filter(m => {
+    const matchCat = filtroCategoria === 'todas' || m.categoria === filtroCategoria;
+    const matchMat = filtroMaterial === 'todos' || m.material === filtroMaterial;
+    return matchCat && matchMat;
+  }), [materiais, filtroCategoria, filtroMaterial]);
+
+  const handleCategoriaChange = (v: string) => {
+    setFiltroCategoria(v);
+    setFiltroMaterial('todos');
+  };
 
   return (
     <div className="page-container animate-fade-in">
@@ -79,7 +101,7 @@ export default function Dashboard() {
                       <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => duplicarProjeto(projeto.id)} title="Duplicar">
                         <Copy className="h-3.5 w-3.5" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => eliminarProjeto(projeto.id)} title="Eliminar">
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setConfirmarEliminar(projeto.id)} title="Eliminar">
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                       <Link to={`/projeto/${projeto.id}`}>
@@ -96,16 +118,113 @@ export default function Dashboard() {
         </div>
       )}
 
+      <AlertDialog open={!!confirmarEliminar} onOpenChange={open => { if (!open) setConfirmarEliminar(null); }}>
+        <AlertDialogContent className="max-w-sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Apagar projeto</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem a certeza que quer apagar este projeto? Esta ação não pode ser revertida.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Não</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => { if (confirmarEliminar) eliminarProjeto(confirmarEliminar); setConfirmarEliminar(null); }}
+            >
+              Sim, apagar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {projetos.length > 0 && (
         <div className="mt-8">
           <h2 className="text-lg font-semibold mb-4">Distribuição de Custos (Todos os Projetos)</h2>
           <Card>
             <CardContent className="p-6">
-              <CostDistributionChart projetos={projetos} />
+              <CostDistributionChart tarefas={projetos.flatMap(p => p.tarefas)} />
             </CardContent>
           </Card>
         </div>
       )}
+
+      {/* Materials section */}
+      <div className="mt-10">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold">Materiais</h2>
+          <Link to="/materiais">
+            <Button variant="outline" size="sm">Ver todos</Button>
+          </Link>
+        </div>
+
+        <div className="flex flex-wrap gap-3 mb-4">
+          <Select value={filtroCategoria} onValueChange={handleCategoriaChange}>
+            <SelectTrigger className="w-44 h-9"><SelectValue placeholder="Categoria" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todas">Todas as categorias</SelectItem>
+              {CATEGORIAS_MATERIAL.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          {tiposDisponiveis.length > 0 && (
+            <Select value={filtroMaterial} onValueChange={setFiltroMaterial}>
+              <SelectTrigger className="w-44 h-9"><SelectValue placeholder="Material" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todos os materiais</SelectItem>
+                {tiposDisponiveis.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
+
+        <Card>
+          <div className="overflow-x-auto">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Nome</th>
+                  <th>Categoria</th>
+                  <th>Material</th>
+                  <th>Gama</th>
+                  <th className="text-right">Preço (€)</th>
+                  <th>Fornecedor</th>
+                </tr>
+              </thead>
+              <tbody>
+                {materiais.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="text-center py-8 text-muted-foreground text-sm">
+                      Sem materiais. <Link to="/materiais" className="underline">Adicionar materiais.</Link>
+                    </td>
+                  </tr>
+                ) : materiaisFiltrados.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="text-center py-6 text-muted-foreground text-sm">Nenhum material encontrado para os filtros selecionados.</td>
+                  </tr>
+                ) : (
+                  materiaisFiltrados.slice(0, 50).map(m => (
+                    <tr key={m.id}>
+                      <td className="font-medium text-sm">{m.nome}</td>
+                      <td className="text-sm">{m.categoria}</td>
+                      <td className="text-sm">{m.material || <span className="text-muted-foreground">—</span>}</td>
+                      <td><GamaBadge gama={resolverGama(m, materiais)} /></td>
+                      <td className="text-right mono text-sm">{formatCurrency(m.precoUnitario)}</td>
+                      <td className="text-sm text-muted-foreground">{m.fornecedor || '—'}</td>
+                    </tr>
+                  ))
+                )}
+                {materiaisFiltrados.length > 50 && (
+                  <tr>
+                    <td colSpan={6} className="text-center py-3 text-xs text-muted-foreground">
+                      A mostrar 50 de {materiaisFiltrados.length}. <Link to="/materiais" className="underline">Ver todos.</Link>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      </div>
     </div>
   );
 }
