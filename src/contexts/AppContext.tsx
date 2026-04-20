@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useCallback, useEffect } fr
 import { Projeto, Material, MaoDeObra, TemplateDivisao } from '@/types/project';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
+import { useWorkspace } from '@/contexts/WorkspaceContext';
 
 interface AppContextType {
   projetos: Projeto[];
@@ -80,10 +81,11 @@ function rowToTemplate(row: Record<string, unknown>): TemplateDivisao {
 
 // --- TS type → DB row mappers ---
 
-function projetoToRow(p: Projeto, userId: string) {
+function projetoToRow(p: Projeto, userId: string, workspaceId: string | null) {
   return {
     id: p.id,
     user_id: userId,
+    workspace_id: workspaceId,
     nome: p.nome,
     criado_em: p.criadoEm,
     fracoes: p.fracoes,
@@ -91,10 +93,11 @@ function projetoToRow(p: Projeto, userId: string) {
   };
 }
 
-function materialToRow(m: Material, userId: string) {
+function materialToRow(m: Material, userId: string, workspaceId: string | null) {
   return {
     id: m.id,
     user_id: userId,
+    workspace_id: workspaceId,
     nome: m.nome,
     referencia: m.referencia,
     categoria: m.categoria,
@@ -107,10 +110,11 @@ function materialToRow(m: Material, userId: string) {
   };
 }
 
-function maoDeObraToRow(m: MaoDeObra, userId: string) {
+function maoDeObraToRow(m: MaoDeObra, userId: string, workspaceId: string | null) {
   return {
     id: m.id,
     user_id: userId,
+    workspace_id: workspaceId,
     nome: m.nome,
     categoria: m.categoria,
     unidade: m.unidade,
@@ -120,10 +124,11 @@ function maoDeObraToRow(m: MaoDeObra, userId: string) {
   };
 }
 
-function templateToRow(t: TemplateDivisao, userId: string) {
+function templateToRow(t: TemplateDivisao, userId: string, workspaceId: string | null) {
   return {
     id: t.id,
     user_id: userId,
+    workspace_id: workspaceId,
     nome: t.nome,
     subcapitulo: t.subcapitulo,
     criado_em: t.criadoEm,
@@ -133,6 +138,7 @@ function templateToRow(t: TemplateDivisao, userId: string) {
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
+  const { activeWorkspace } = useWorkspace();
 
   const [projetos, setProjetosState] = useState<Projeto[]>([]);
   const [materiais, setMateriaisState] = useState<Material[]>([]);
@@ -140,7 +146,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [templatesState, setTemplatesState] = useState<TemplateDivisao[]>([]);
   const [carregando, setCarregando] = useState(true);
 
-  // Fetch all data on mount when user is authenticated
   useEffect(() => {
     if (!user) {
       setCarregando(false);
@@ -151,30 +156,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setCarregando(true);
 
     async function fetchAll() {
-      const [
-        { data: projetosData },
-        { data: materiaisData },
-        { data: maoData },
-        { data: templatesData },
-      ] = await Promise.all([
-        supabase.from('projetos').select('*').eq('user_id', user!.id),
-        supabase.from('materiais').select('*').eq('user_id', user!.id),
-        supabase.from('mao_de_obra').select('*').eq('user_id', user!.id),
-        supabase.from('templates_divisao').select('*').eq('user_id', user!.id),
-      ]);
+      let projetosQ, materiaisQ, maoQ, templatesQ;
+
+      if (activeWorkspace) {
+        [projetosQ, materiaisQ, maoQ, templatesQ] = await Promise.all([
+          supabase.from('projetos').select('*').eq('workspace_id', activeWorkspace.id),
+          supabase.from('materiais').select('*').eq('workspace_id', activeWorkspace.id),
+          supabase.from('mao_de_obra').select('*').eq('workspace_id', activeWorkspace.id),
+          supabase.from('templates_divisao').select('*').eq('workspace_id', activeWorkspace.id),
+        ]);
+      } else {
+        [projetosQ, materiaisQ, maoQ, templatesQ] = await Promise.all([
+          supabase.from('projetos').select('*').eq('user_id', user!.id).is('workspace_id', null),
+          supabase.from('materiais').select('*').eq('user_id', user!.id).is('workspace_id', null),
+          supabase.from('mao_de_obra').select('*').eq('user_id', user!.id).is('workspace_id', null),
+          supabase.from('templates_divisao').select('*').eq('user_id', user!.id).is('workspace_id', null),
+        ]);
+      }
 
       if (cancelled) return;
 
-      setProjetosState((projetosData ?? []).map(rowToProjeto));
-      setMateriaisState((materiaisData ?? []).map(rowToMaterial));
-      setMaoDeObraState((maoData ?? []).map(rowToMaoDeObra));
-      setTemplatesState((templatesData ?? []).map(rowToTemplate));
+      setProjetosState((projetosQ.data ?? []).map(rowToProjeto));
+      setMateriaisState((materiaisQ.data ?? []).map(rowToMaterial));
+      setMaoDeObraState((maoQ.data ?? []).map(rowToMaoDeObra));
+      setTemplatesState((templatesQ.data ?? []).map(rowToTemplate));
       setCarregando(false);
     }
 
     fetchAll();
     return () => { cancelled = true; };
-  }, [user]);
+  }, [user, activeWorkspace]);
 
   // --- Projetos ---
 
@@ -182,27 +193,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setProjetosState((prev) => {
       const next = typeof p === 'function' ? p(prev) : p;
       if (user) {
-        // Upsert all projetos
         supabase
           .from('projetos')
-          .upsert(next.map((proj) => projetoToRow(proj, user.id)))
+          .upsert(next.map((proj) => projetoToRow(proj, user.id, activeWorkspace?.id ?? null)))
           .then(() => {});
       }
       return next;
     });
-  }, [user]);
+  }, [user, activeWorkspace]);
 
   const adicionarProjeto = useCallback((p: Projeto) => {
     if (!user) return;
     setProjetosState((prev) => [...prev, p]);
-    supabase.from('projetos').insert(projetoToRow(p, user.id)).then(() => {});
-  }, [user]);
+    supabase.from('projetos').insert(projetoToRow(p, user.id, activeWorkspace?.id ?? null)).then(() => {});
+  }, [user, activeWorkspace]);
 
   const atualizarProjeto = useCallback((p: Projeto) => {
     if (!user) return;
     setProjetosState((prev) => prev.map((x) => (x.id === p.id ? p : x)));
-    supabase.from('projetos').update(projetoToRow(p, user.id)).eq('id', p.id).then(() => {});
-  }, [user]);
+    supabase.from('projetos').update(projetoToRow(p, user.id, activeWorkspace?.id ?? null)).eq('id', p.id).then(() => {});
+  }, [user, activeWorkspace]);
 
   const eliminarProjeto = useCallback((id: string) => {
     if (!user) return;
@@ -221,10 +231,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         nome: `${orig.nome} (cópia)`,
         criadoEm: new Date().toISOString(),
       };
-      supabase.from('projetos').insert(projetoToRow(clone, user!.id)).then(() => {});
+      supabase.from('projetos').insert(projetoToRow(clone, user!.id, activeWorkspace?.id ?? null)).then(() => {});
       return [...prev, clone];
     });
-  }, [user]);
+  }, [user, activeWorkspace]);
 
   // --- Materiais ---
 
@@ -235,20 +245,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const adicionarMaterial = useCallback((m: Material) => {
     if (!user) return;
     setMateriaisState((prev) => [...prev, m]);
-    supabase.from('materiais').insert(materialToRow(m, user.id)).then(() => {});
-  }, [user]);
+    supabase.from('materiais').insert(materialToRow(m, user.id, activeWorkspace?.id ?? null)).then(() => {});
+  }, [user, activeWorkspace]);
 
   const importarMateriais = useCallback((ms: Material[]) => {
     if (!user) return;
     setMateriaisState((prev) => [...prev, ...ms]);
-    supabase.from('materiais').insert(ms.map(m => materialToRow(m, user.id))).then(() => {});
-  }, [user]);
+    supabase.from('materiais').insert(ms.map(m => materialToRow(m, user.id, activeWorkspace?.id ?? null))).then(() => {});
+  }, [user, activeWorkspace]);
 
   const atualizarMaterial = useCallback((m: Material) => {
     if (!user) return;
     setMateriaisState((prev) => prev.map((x) => (x.id === m.id ? m : x)));
-    supabase.from('materiais').update(materialToRow(m, user.id)).eq('id', m.id).then(() => {});
-  }, [user]);
+    supabase.from('materiais').update(materialToRow(m, user.id, activeWorkspace?.id ?? null)).eq('id', m.id).then(() => {});
+  }, [user, activeWorkspace]);
 
   const eliminarMaterial = useCallback((id: string) => {
     if (!user) return;
@@ -261,20 +271,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const adicionarMaoDeObra = useCallback((m: MaoDeObra) => {
     if (!user) return;
     setMaoDeObraState((prev) => [...prev, m]);
-    supabase.from('mao_de_obra').insert(maoDeObraToRow(m, user.id)).then(() => {});
-  }, [user]);
+    supabase.from('mao_de_obra').insert(maoDeObraToRow(m, user.id, activeWorkspace?.id ?? null)).then(() => {});
+  }, [user, activeWorkspace]);
 
   const importarMaoDeObra = useCallback((ms: MaoDeObra[]) => {
     if (!user) return;
     setMaoDeObraState((prev) => [...prev, ...ms]);
-    supabase.from('mao_de_obra').insert(ms.map(m => maoDeObraToRow(m, user.id))).then(() => {});
-  }, [user]);
+    supabase.from('mao_de_obra').insert(ms.map(m => maoDeObraToRow(m, user.id, activeWorkspace?.id ?? null))).then(() => {});
+  }, [user, activeWorkspace]);
 
   const atualizarMaoDeObra = useCallback((m: MaoDeObra) => {
     if (!user) return;
     setMaoDeObraState((prev) => prev.map((x) => (x.id === m.id ? m : x)));
-    supabase.from('mao_de_obra').update(maoDeObraToRow(m, user.id)).eq('id', m.id).then(() => {});
-  }, [user]);
+    supabase.from('mao_de_obra').update(maoDeObraToRow(m, user.id, activeWorkspace?.id ?? null)).eq('id', m.id).then(() => {});
+  }, [user, activeWorkspace]);
 
   const eliminarMaoDeObra = useCallback((id: string) => {
     if (!user) return;
@@ -287,8 +297,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const adicionarTemplate = useCallback((t: TemplateDivisao) => {
     if (!user) return;
     setTemplatesState((prev) => [...prev, t]);
-    supabase.from('templates_divisao').insert(templateToRow(t, user.id)).then(() => {});
-  }, [user]);
+    supabase.from('templates_divisao').insert(templateToRow(t, user.id, activeWorkspace?.id ?? null)).then(() => {});
+  }, [user, activeWorkspace]);
 
   const eliminarTemplate = useCallback((id: string) => {
     if (!user) return;
