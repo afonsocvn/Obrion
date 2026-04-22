@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, FolderPlus, Package, Building2, HardHat,
-  LogOut, Users, Plus, ArrowLeft, ChevronRight, UserPlus, Crown, User, AlertTriangle, Bug, Lightbulb,
+  LogOut, Users, Plus, ArrowLeft, ChevronRight, UserPlus, Crown, User, AlertTriangle, Bug, Lightbulb, Bell, X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -28,8 +28,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, signOut } = useAuth();
   const { carregando } = useApp();
   const {
-    workspaces, activeWorkspace, isTeamMode, isOwner, members, pendingInvites,
-    createWorkspace, switchToPersonal, switchToWorkspace, inviteByEmail, acceptInvite, rejectInvite,
+    workspaces, activeWorkspace, isTeamMode, isOwner, members, pendingInvites, workspaceInvites,
+    createWorkspace, switchToPersonal, switchToWorkspace, inviteByEmail, cancelInvite, acceptInvite, rejectInvite,
   } = useWorkspace();
 
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -40,6 +40,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [erroCreate, setErroCreate] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [conviteEnviado, setConviteEnviado] = useState(false);
+  const [showInviteNotif, setShowInviteNotif] = useState(false);
+  const [inviteNotifShown, setInviteNotifShown] = useState(false);
 
   // Feedback
   const [feedbackStep, setFeedbackStep] = useState<'closed' | 'tipo' | 'texto'>('closed');
@@ -47,6 +49,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [feedbackTexto, setFeedbackTexto] = useState('');
   const [feedbackEnviando, setFeedbackEnviando] = useState(false);
   const [feedbackEnviado, setFeedbackEnviado] = useState(false);
+
+  // Abre automaticamente o diálogo quando chegam novos convites
+  useEffect(() => {
+    if (pendingInvites.length > 0 && !inviteNotifShown) {
+      setShowInviteNotif(true);
+      setInviteNotifShown(true);
+    }
+  }, [pendingInvites.length, inviteNotifShown]);
 
   const handleFeedbackEnviar = async () => {
     if (!feedbackTexto.trim() || !feedbackTipo) return;
@@ -82,9 +92,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   };
 
   const handleInvite = async () => {
-    if (!emailConvite.trim()) return;
+    if (!emailConvite.trim() || !activeWorkspace) return;
     setEnviando(true);
-    const ok = await inviteByEmail(emailConvite.trim());
+    const ok = await inviteByEmail(emailConvite.trim(), activeWorkspace.id);
     setEnviando(false);
     if (ok) {
       setConviteEnviado(true);
@@ -202,29 +212,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   <ChevronRight className="h-3 w-3 opacity-50 shrink-0" />
                 </Button>
               ))}
-              {/* Notificações de convite */}
-              {pendingInvites.map((invite) => (
-                <div key={invite.id} className="rounded-md border border-blue-200 bg-blue-50 px-2.5 py-2 mb-1">
-                  <p className="text-xs text-blue-800 mb-1.5 leading-snug">
-                    Convite para <span className="font-semibold">{invite.workspace_nome}</span>
-                  </p>
-                  <div className="flex gap-1">
-                    <button
-                      className="flex-1 text-[11px] font-medium bg-blue-600 text-white rounded px-2 py-1 hover:bg-blue-700 transition-colors"
-                      onClick={() => acceptInvite(invite)}
-                    >
-                      Aceitar
-                    </button>
-                    <button
-                      className="flex-1 text-[11px] font-medium border border-blue-300 text-blue-700 rounded px-2 py-1 hover:bg-blue-100 transition-colors"
-                      onClick={() => rejectInvite(invite.id)}
-                    >
-                      Rejeitar
-                    </button>
-                  </div>
-                </div>
-              ))}
-
               <Button
                 variant="ghost"
                 size="sm"
@@ -241,9 +228,23 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         {/* User / sign out */}
         <div className={cn('px-4 py-4 border-t space-y-3', isTeamMode ? 'border-green-800' : 'border-sidebar-border')}>
           {user && (
-            <p className={cn('text-xs truncate px-1', isTeamMode ? 'text-green-300' : 'text-sidebar-muted')} title={user.email}>
-              {user.email}
-            </p>
+            <div className="flex items-center gap-1.5 px-1">
+              <p className={cn('text-xs truncate flex-1', isTeamMode ? 'text-green-300' : 'text-sidebar-muted')} title={user.email}>
+                {user.email}
+              </p>
+              {pendingInvites.length > 0 && (
+                <button
+                  onClick={() => setShowInviteNotif(true)}
+                  className="relative shrink-0 p-1 rounded hover:bg-white/10 transition-colors"
+                  title="Notificações de convite"
+                >
+                  <Bell className={cn('h-3.5 w-3.5', isTeamMode ? 'text-green-300' : 'text-sidebar-muted')} />
+                  <span className="absolute -top-0.5 -right-0.5 h-3.5 w-3.5 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center leading-none">
+                    {pendingInvites.length}
+                  </span>
+                </button>
+              )}
+            </div>
           )}
           <Button
             variant="ghost"
@@ -303,6 +304,53 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               {criando ? 'A criar...' : 'Criar equipa'}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: notificações de convite */}
+      <Dialog open={showInviteNotif} onOpenChange={setShowInviteNotif}>
+        <DialogContent className="bg-white max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Bell className="h-5 w-5 text-blue-600" />
+              Convites de equipa
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-1">
+            {pendingInvites.map((invite) => (
+              <div key={invite.id} className="rounded-lg border border-blue-100 bg-blue-50 p-4">
+                <p className="text-sm text-blue-900 mb-3">
+                  Foi convidado para a equipa <span className="font-semibold">"{invite.workspace_nome}"</span>. Deseja juntar-se?
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    className="flex-1 bg-blue-600 hover:bg-blue-700"
+                    onClick={async () => {
+                      await acceptInvite(invite);
+                      if (pendingInvites.length <= 1) setShowInviteNotif(false);
+                    }}
+                  >
+                    Sim, juntar-me
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-1 border-blue-200 text-blue-700 hover:bg-blue-100"
+                    onClick={async () => {
+                      await rejectInvite(invite.id);
+                      if (pendingInvites.length <= 1) setShowInviteNotif(false);
+                    }}
+                  >
+                    Não, recusar
+                  </Button>
+                </div>
+              </div>
+            ))}
+            {pendingInvites.length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-2">Sem convites pendentes.</p>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -409,12 +457,46 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             ))}
           </div>
 
+          {/* Convidados pendentes */}
+          {workspaceInvites.length > 0 && (
+            <div className="border-t pt-3 mt-1">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
+                Convidados ({workspaceInvites.length})
+              </p>
+              <div className="space-y-1">
+                {workspaceInvites.map((inv) => (
+                  <div key={inv.id} className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-amber-50 border border-amber-100">
+                    <div className="h-6 w-6 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
+                      <UserPlus className="h-3 w-3 text-amber-600" />
+                    </div>
+                    <p className="text-xs text-amber-800 truncate flex-1">{inv.email}</p>
+                    <span className="text-[10px] text-amber-500 shrink-0">Pendente</span>
+                    {isOwner && (
+                      <button
+                        onClick={() => cancelInvite(inv.id)}
+                        className="shrink-0 p-0.5 rounded hover:bg-amber-200 transition-colors"
+                        title="Cancelar convite"
+                      >
+                        <X className="h-3 w-3 text-amber-600" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Invite form (owner only) */}
           {isOwner && (
             <div className="border-t pt-4 mt-2">
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
                 Convidar por email
               </p>
+              {conviteEnviado && (
+                <div className="flex items-center gap-1.5 text-xs text-green-700 font-medium bg-green-50 border border-green-200 rounded-md px-3 py-2 mb-2">
+                  ✓ O seu convite foi enviado com sucesso.
+                </div>
+              )}
               <div className="flex gap-2">
                 <Input
                   placeholder="email@exemplo.com"
@@ -434,11 +516,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   {enviando ? '...' : 'Convidar'}
                 </Button>
               </div>
-              {conviteEnviado && (
-                <p className="text-xs text-green-600 mt-1.5">
-                  Convite registado. O utilizador verá a equipa quando iniciar sessão.
-                </p>
-              )}
             </div>
           )}
         </DialogContent>

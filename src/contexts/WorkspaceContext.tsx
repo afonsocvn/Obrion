@@ -22,6 +22,12 @@ export interface PendingInvite {
   workspace_nome: string;
 }
 
+export interface WorkspaceInvite {
+  id: string;
+  email: string;
+  criado_em: string;
+}
+
 interface WorkspaceContextType {
   workspaces: Workspace[];
   activeWorkspace: Workspace | null;
@@ -29,10 +35,12 @@ interface WorkspaceContextType {
   isOwner: boolean;
   members: WorkspaceMember[];
   pendingInvites: PendingInvite[];
+  workspaceInvites: WorkspaceInvite[];
   createWorkspace: (nome: string) => Promise<Workspace | null>;
+  cancelInvite: (inviteId: string) => Promise<void>;
   switchToPersonal: () => void;
   switchToWorkspace: (workspace: Workspace) => void;
-  inviteByEmail: (email: string) => Promise<boolean>;
+  inviteByEmail: (email: string, workspaceId: string) => Promise<boolean>;
   acceptInvite: (invite: PendingInvite) => Promise<void>;
   rejectInvite: (inviteId: string) => Promise<void>;
   refreshWorkspaces: () => void;
@@ -46,6 +54,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const [activeWorkspace, setActiveWorkspace] = useState<Workspace | null>(null);
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>([]);
+  const [workspaceInvites, setWorkspaceInvites] = useState<WorkspaceInvite[]>([]);
 
   const fetchWorkspaces = useCallback(async () => {
     if (!user) {
@@ -74,21 +83,42 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const fetchPendingInvites = useCallback(async () => {
     if (!user?.email) return;
     try {
-      const { data } = await supabase
-        .from('workspace_invites')
-        .select('id, workspace_id, rejected, workspaces(nome)')
-        .eq('email', user.email.toLowerCase())
-        .eq('accepted', false)
-        .eq('rejected', false);
+      const { data, error } = await supabase.rpc('get_my_pending_invites');
 
-      const invites = ((data ?? []) as any[]).map((row) => ({
+      if (error) {
+        console.error('[fetchPendingInvites]', error.message);
+        return;
+      }
+
+      const baseInvites = ((data ?? []) as any[]);
+
+      // Mostrar o sino imediatamente com placeholder
+      setPendingInvites(baseInvites.map((row: any) => ({
         id: row.id,
         workspace_id: row.workspace_id,
-        workspace_nome: row.workspaces?.nome ?? 'Equipa',
-      }));
-      setPendingInvites(invites);
-    } catch {
-      setPendingInvites([]);
+        workspace_nome: 'Equipa',
+      })));
+
+      if (baseInvites.length === 0) return;
+
+      // Enriquecer com o nome real da equipa
+      const ids = baseInvites.map((r: any) => r.workspace_id);
+      const { data: wsData } = await supabase
+        .from('workspaces')
+        .select('id, nome')
+        .in('id', ids);
+
+      if (wsData && wsData.length > 0) {
+        const nameMap: Record<string, string> = {};
+        wsData.forEach((w: any) => { nameMap[w.id] = w.nome; });
+        setPendingInvites(baseInvites.map((row: any) => ({
+          id: row.id,
+          workspace_id: row.workspace_id,
+          workspace_nome: nameMap[row.workspace_id] ?? 'Equipa',
+        })));
+      }
+    } catch (e: any) {
+      console.error('[fetchPendingInvites catch]', e?.message);
     }
   }, [user?.email]);
 
@@ -130,13 +160,29 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     return () => { supabase.removeChannel(channel); };
   }, [user?.email, fetchPendingInvites]);
 
+  const fetchWorkspaceInvites = useCallback(async (workspaceId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('workspace_invites')
+        .select('id, email, created_at')
+        .eq('workspace_id', workspaceId)
+        .eq('accepted', false);
+      if (error) { console.error('[fetchWorkspaceInvites]', error.message); return; }
+      setWorkspaceInvites(((data ?? []) as any[]).map((r) => ({ id: r.id, email: r.email, criado_em: r.created_at })));
+    } catch {
+      setWorkspaceInvites([]);
+    }
+  }, []);
+
   useEffect(() => {
     if (activeWorkspace) {
       fetchMembers(activeWorkspace.id);
+      fetchWorkspaceInvites(activeWorkspace.id);
     } else {
       setMembers([]);
+      setWorkspaceInvites([]);
     }
-  }, [activeWorkspace, fetchMembers]);
+  }, [activeWorkspace, fetchMembers, fetchWorkspaceInvites]);
 
   const createWorkspace = async (nome: string): Promise<Workspace | null> => {
     if (!user) return null;
@@ -163,19 +209,22 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     return ws as Workspace;
   };
 
-  const inviteByEmail = async (email: string): Promise<boolean> => {
-    if (!user || !activeWorkspace) return false;
-    const { error } = await supabase.from('workspace_invites').upsert(
-      {
-        workspace_id: activeWorkspace.id,
-        email: email.toLowerCase(),
-        invited_by: user.id,
-        accepted: false,
-        rejected: false,
-      },
-      { onConflict: 'workspace_id,email' }
-    );
-    return !error;
+  const inviteByEmail = async (email: string, workspaceId: string): Promise<boolean> => {
+    if (!user) return false;
+    const { error } = await supabase.from('workspace_invites').insert({
+      workspace_id: workspaceId,
+      email: email.toLowerCase(),
+      invited_by: user.id,
+      accepted: false,
+    });
+    // 23505 = unique violation (convite já existe) — tratar como sucesso
+    if (error && error.code !== '23505') {
+      console.error('[inviteByEmail]', error.message, error.code);
+      return false;
+    }
+    // Refrescar lista a partir da BD para ter IDs reais
+    await fetchWorkspaceInvites(workspaceId);
+    return true;
   };
 
   const acceptInvite = async (invite: PendingInvite) => {
@@ -198,8 +247,13 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     await fetchWorkspaces();
   };
 
+  const cancelInvite = async (inviteId: string) => {
+    await supabase.from('workspace_invites').delete().eq('id', inviteId);
+    setWorkspaceInvites((prev) => prev.filter((i) => i.id !== inviteId));
+  };
+
   const rejectInvite = async (inviteId: string) => {
-    await supabase.from('workspace_invites').update({ rejected: true }).eq('id', inviteId);
+    await supabase.from('workspace_invites').delete().eq('id', inviteId);
     setPendingInvites((prev) => prev.filter((i) => i.id !== inviteId));
   };
 
@@ -214,10 +268,12 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         isOwner,
         members,
         pendingInvites,
+        workspaceInvites,
         createWorkspace,
         switchToPersonal: () => setActiveWorkspace(null),
         switchToWorkspace: (ws) => setActiveWorkspace(ws),
         inviteByEmail,
+        cancelInvite,
         acceptInvite,
         rejectInvite,
         refreshWorkspaces: fetchWorkspaces,
