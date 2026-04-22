@@ -12,7 +12,11 @@
       "Bash(powershell Stop-Process -Id 20380 -Force:*)",
       "Bash(node_modules/.bin/tsc --noEmit)",
       "Bash(npm install:*)",
-      "Bash(npm list:*)"
+      "Bash(npm list:*)",
+      "Bash(git log *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)"
     ]
   }
 }

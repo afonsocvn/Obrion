@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, FolderPlus, Package, Building2, HardHat,
-  LogOut, Users, Plus, ArrowLeft, ChevronRight, UserPlus, Crown, User,
+  LogOut, Users, Plus, ArrowLeft, ChevronRight, UserPlus, Crown, User, AlertTriangle, Bug, Lightbulb,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -13,6 +13,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Textarea } from '@/components/ui/textarea';
+import { supabase } from '@/lib/supabase';
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -26,8 +28,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, signOut } = useAuth();
   const { carregando } = useApp();
   const {
-    workspaces, activeWorkspace, isTeamMode, isOwner, members,
-    createWorkspace, switchToPersonal, switchToWorkspace, inviteByEmail,
+    workspaces, activeWorkspace, isTeamMode, isOwner, members, pendingInvites,
+    createWorkspace, switchToPersonal, switchToWorkspace, inviteByEmail, acceptInvite, rejectInvite,
   } = useWorkspace();
 
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -38,6 +40,31 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [erroCreate, setErroCreate] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [conviteEnviado, setConviteEnviado] = useState(false);
+
+  // Feedback
+  const [feedbackStep, setFeedbackStep] = useState<'closed' | 'tipo' | 'texto'>('closed');
+  const [feedbackTipo, setFeedbackTipo] = useState<'erro' | 'melhoria' | null>(null);
+  const [feedbackTexto, setFeedbackTexto] = useState('');
+  const [feedbackEnviando, setFeedbackEnviando] = useState(false);
+  const [feedbackEnviado, setFeedbackEnviado] = useState(false);
+
+  const handleFeedbackEnviar = async () => {
+    if (!feedbackTexto.trim() || !feedbackTipo) return;
+    setFeedbackEnviando(true);
+    await supabase.from('feedback').insert({
+      tipo: feedbackTipo,
+      mensagem: feedbackTexto.trim(),
+      user_email: user?.email ?? null,
+    });
+    setFeedbackEnviando(false);
+    setFeedbackEnviado(true);
+    setTimeout(() => {
+      setFeedbackStep('closed');
+      setFeedbackTipo(null);
+      setFeedbackTexto('');
+      setFeedbackEnviado(false);
+    }, 2000);
+  };
 
   const handleCreateWorkspace = async () => {
     if (!nomeEquipa.trim()) return;
@@ -114,6 +141,24 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           })}
         </nav>
 
+        {/* Feedback button */}
+        <div className={cn('px-3 pb-1', isTeamMode ? '' : '')}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className={cn(
+              'w-full justify-start gap-2 px-2 text-xs',
+              isTeamMode
+                ? 'text-green-300 hover:text-white hover:bg-green-800'
+                : 'text-sidebar-muted hover:text-sidebar-accent-foreground hover:bg-sidebar-accent'
+            )}
+            onClick={() => setFeedbackStep('tipo')}
+          >
+            <AlertTriangle className="h-3.5 w-3.5" />
+            Reportar erro ou melhoria
+          </Button>
+        </div>
+
         {/* Team section */}
         <div className={cn('px-3 py-3 border-t', isTeamMode ? 'border-green-800' : 'border-sidebar-border')}>
           {isTeamMode ? (
@@ -157,6 +202,29 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   <ChevronRight className="h-3 w-3 opacity-50 shrink-0" />
                 </Button>
               ))}
+              {/* Notificações de convite */}
+              {pendingInvites.map((invite) => (
+                <div key={invite.id} className="rounded-md border border-blue-200 bg-blue-50 px-2.5 py-2 mb-1">
+                  <p className="text-xs text-blue-800 mb-1.5 leading-snug">
+                    Convite para <span className="font-semibold">{invite.workspace_nome}</span>
+                  </p>
+                  <div className="flex gap-1">
+                    <button
+                      className="flex-1 text-[11px] font-medium bg-blue-600 text-white rounded px-2 py-1 hover:bg-blue-700 transition-colors"
+                      onClick={() => acceptInvite(invite)}
+                    >
+                      Aceitar
+                    </button>
+                    <button
+                      className="flex-1 text-[11px] font-medium border border-blue-300 text-blue-700 rounded px-2 py-1 hover:bg-blue-100 transition-colors"
+                      onClick={() => rejectInvite(invite.id)}
+                    >
+                      Rejeitar
+                    </button>
+                  </div>
+                </div>
+              ))}
+
               <Button
                 variant="ghost"
                 size="sm"
@@ -235,6 +303,78 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               {criando ? 'A criar...' : 'Criar equipa'}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: feedback */}
+      <Dialog open={feedbackStep !== 'closed'} onOpenChange={(open) => !open && setFeedbackStep('closed')}>
+        <DialogContent className="bg-white max-w-sm">
+          {feedbackStep === 'tipo' && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <AlertTriangle className="h-5 w-5 text-amber-500" />
+                  O que pretende reportar?
+                </DialogTitle>
+              </DialogHeader>
+              <div className="grid grid-cols-2 gap-3 py-2">
+                <button
+                  onClick={() => { setFeedbackTipo('erro'); setFeedbackStep('texto'); }}
+                  className="flex flex-col items-center gap-2 p-4 rounded-lg border-2 border-red-100 hover:border-red-400 hover:bg-red-50 transition-colors"
+                >
+                  <Bug className="h-7 w-7 text-red-500" />
+                  <span className="text-sm font-medium text-red-700">Reportar erro</span>
+                </button>
+                <button
+                  onClick={() => { setFeedbackTipo('melhoria'); setFeedbackStep('texto'); }}
+                  className="flex flex-col items-center gap-2 p-4 rounded-lg border-2 border-blue-100 hover:border-blue-400 hover:bg-blue-50 transition-colors"
+                >
+                  <Lightbulb className="h-7 w-7 text-blue-500" />
+                  <span className="text-sm font-medium text-blue-700">Sugerir melhoria</span>
+                </button>
+              </div>
+            </>
+          )}
+
+          {feedbackStep === 'texto' && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  {feedbackTipo === 'erro'
+                    ? <><Bug className="h-5 w-5 text-red-500" /> Descreva o erro</>
+                    : <><Lightbulb className="h-5 w-5 text-blue-500" /> Descreva a melhoria</>
+                  }
+                </DialogTitle>
+              </DialogHeader>
+              <div className="py-1">
+                <Textarea
+                  placeholder={feedbackTipo === 'erro'
+                    ? 'O que aconteceu? Em que página? O que esperava que acontecesse?'
+                    : 'Que funcionalidade gostaria de ver? Como funcionaria?'
+                  }
+                  className="min-h-[120px] resize-none"
+                  value={feedbackTexto}
+                  onChange={(e) => setFeedbackTexto(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              {feedbackEnviado && (
+                <p className="text-sm text-green-600 font-medium text-center">Obrigado pelo feedback!</p>
+              )}
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setFeedbackStep('tipo')} disabled={feedbackEnviando}>
+                  Voltar
+                </Button>
+                <Button
+                  onClick={handleFeedbackEnviar}
+                  disabled={!feedbackTexto.trim() || feedbackEnviando || feedbackEnviado}
+                  className={feedbackTipo === 'erro' ? 'bg-red-600 hover:bg-red-700' : ''}
+                >
+                  {feedbackEnviando ? 'A enviar...' : 'Enviar'}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
 

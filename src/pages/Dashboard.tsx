@@ -11,6 +11,7 @@ import { calcularResumo } from '@/lib/wbs';
 import { CATEGORIAS_MATERIAL, TIPOS_MATERIAL } from '@/types/project';
 import CostDistributionChart from '@/components/CostDistributionChart';
 import { resolverGama, GamaBadge } from '@/pages/MateriaisPage';
+import MigracaoBanner from '@/components/MigracaoBanner';
 
 export default function Dashboard() {
   const { projetos, duplicarProjeto, eliminarProjeto, materiais } = useApp();
@@ -34,6 +35,7 @@ export default function Dashboard() {
 
   return (
     <div className="page-container animate-fade-in">
+      <MigracaoBanner />
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="section-title">Dashboard</h1>
