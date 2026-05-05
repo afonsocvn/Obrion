@@ -12,6 +12,7 @@ import NovoProjeto from "./pages/NovoProjeto";
 import ProjetoDetalhe from "./pages/ProjetoDetalhe";
 import MateriaisPage from "./pages/MateriaisPage";
 import MaoDeObraPage from "./pages/MaoDeObraPage";
+import OrcamentosPage from "./pages/OrcamentosPage";
 import AuthPage from "./pages/AuthPage";
 import NotFound from "./pages/NotFound";
 
@@ -60,6 +61,7 @@ const App = () => (
                         <Route path="/projeto/:id" element={<ProjetoDetalhe />} />
                         <Route path="/materiais" element={<MateriaisPage />} />
                         <Route path="/mao-de-obra" element={<MaoDeObraPage />} />
+                        <Route path="/orcamentos" element={<OrcamentosPage />} />
                         <Route path="*" element={<NotFound />} />
                       </Routes>
                     </AppLayout>
