@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard, FolderPlus, Package, Building2, HardHat,
+  LayoutDashboard, FolderPlus, Package, Building2, HardHat, Calculator,
   LogOut, Users, Plus, ArrowLeft, ChevronRight, UserPlus, Crown, User, AlertTriangle, Bug, Lightbulb, Bell, X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -21,6 +21,7 @@ const navItems = [
   { to: '/novo-projeto', label: 'Novo Projeto', icon: FolderPlus },
   { to: '/materiais', label: 'Materiais', icon: Package },
   { to: '/mao-de-obra', label: 'Mão de Obra', icon: HardHat },
+  { to: '/orcamentos', label: 'Orçamentos', icon: Calculator },
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
