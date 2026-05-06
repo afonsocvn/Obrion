@@ -15,7 +15,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import {
   FileSpreadsheet, ChevronUp, ChevronDown, AlertTriangle, Check,
   Trash2, ArrowLeft, Save, ChevronRight, Plus, Minus, BadgeCheck,
-  Layers, BarChart2, FolderOpen, AlertCircle, PencilLine, X, SlidersHorizontal,
+  Layers, BarChart2, FolderOpen, AlertCircle, PencilLine, X, SlidersHorizontal, Star,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -58,6 +58,7 @@ interface Orcamento {
   m2AcimaSolo: number; m2AbaixoSolo: number; numApartamentos: number;
   m2Retalho: number; m2AreasComuns: number; m2Circulacao: number;
   m2AreasTecnicas: number; m2Terracos: number;
+  projetoDefault: string | null;
 }
 
 interface FilePendente {
@@ -77,6 +78,7 @@ function loadOrcamentosLS(): Orcamento[] {
     return raw.map((o: Orcamento) => ({
       m2AcimaSolo: 0, m2AbaixoSolo: 0, numApartamentos: 0,
       m2Retalho: 0, m2AreasComuns: 0, m2Circulacao: 0, m2AreasTecnicas: 0, m2Terracos: 0,
+      projetoDefault: null,
       ...o,
       projetos: (o.projetos ?? []).map((p: Projeto) => ({ versao: '', ...p })),
     }));
@@ -105,6 +107,7 @@ function orcToRow(o: Orcamento, userId: string, workspaceId: string | null): DbO
     m2_acima_solo: o.m2AcimaSolo, m2_abaixo_solo: o.m2AbaixoSolo, num_apartamentos: o.numApartamentos,
     m2_retalho: o.m2Retalho, m2_areas_comuns: o.m2AreasComuns, m2_circulacao: o.m2Circulacao,
     m2_areas_tecnicas: o.m2AreasTecnicas, m2_terracos: o.m2Terracos,
+    projeto_default: o.projetoDefault ?? null,
   };
 }
 function projToRow(p: Projeto, orcId: string): DbProjeto {
@@ -131,6 +134,7 @@ async function loadOrcamentosDB(userId: string, workspaceId: string | null): Pro
     numApartamentos: row.num_apartamentos ?? 0, m2Retalho: row.m2_retalho ?? 0,
     m2AreasComuns: row.m2_areas_comuns ?? 0, m2Circulacao: row.m2_circulacao ?? 0,
     m2AreasTecnicas: row.m2_areas_tecnicas ?? 0, m2Terracos: row.m2_terracos ?? 0,
+    projetoDefault: row.projeto_default ?? null,
     projetos: (row.orcamento_projetos ?? []).map((p: any) => ({
       id: p.id, nome: p.nome, versao: p.versao ?? '', criadoEm: p.criado_em,
       ficheiros: (p.orcamento_ficheiros ?? []).map((f: any) => ({
@@ -848,6 +852,14 @@ export default function OrcamentosPage() {
     updateOrcamentos(prev => prev.map(o =>
       o.id === selectedOrcId
         ? { ...o, projetos: o.projetos.map(p => p.id === projId ? { ...p, versao } : p) }
+        : o,
+    ));
+  };
+
+  const definirProjetoDefault = (orcId: string, projId: string) => {
+    updateOrcamentos(prev => prev.map(o =>
+      o.id === orcId
+        ? { ...o, projetoDefault: o.projetoDefault === projId ? null : projId }
         : o,
     ));
   };
@@ -2338,12 +2350,13 @@ export default function OrcamentosPage() {
         ) : (
           <div className="space-y-2">
             {selectedOrc.projetos.map((proj, idx) => {
-              const caps      = getCapitulosNivel1(proj);
-              const gaps      = detectarGaps(caps);
-              const totalProj = getProjetoTotal(proj);
+              const caps       = getCapitulosNivel1(proj);
+              const gaps       = detectarGaps(caps);
+              const totalProj  = getProjetoTotal(proj);
+              const isDefault  = selectedOrc.projetoDefault === proj.id;
               return (
                 <Card key={proj.id}
-                  className="hover:shadow-sm transition-all cursor-pointer"
+                  className={cn('hover:shadow-sm transition-all cursor-pointer', isDefault && 'ring-1 ring-amber-400')}
                   onClick={() => irParaProjeto(proj.id)}>
                   <CardContent className="py-3 px-4 flex items-center gap-3">
                     <div
@@ -2405,6 +2418,12 @@ export default function OrcamentosPage() {
                         {formatCurrency(Math.round(totalProj / (selectedOrc.m2AcimaSolo + selectedOrc.m2AbaixoSolo)))}/m²
                       </p>
                     )}
+                    <Button variant="ghost" size="sm"
+                      title={isDefault ? 'Remover como principal' : 'Definir como principal'}
+                      className={cn('h-8 w-8 p-0 shrink-0', isDefault ? 'text-amber-500 hover:text-amber-600' : 'text-muted-foreground hover:text-amber-500')}
+                      onClick={(e) => { e.stopPropagation(); definirProjetoDefault(selectedOrc.id, proj.id); }}>
+                      <Star className={cn('h-4 w-4', isDefault && 'fill-amber-500')} />
+                    </Button>
                     <Button variant="ghost" size="sm"
                       className="text-muted-foreground hover:text-red-600 h-8 w-8 p-0 shrink-0"
                       onClick={(e) => { e.stopPropagation(); eliminarProjeto(proj.id); }}>
@@ -2642,8 +2661,10 @@ export default function OrcamentosPage() {
       ) : (
         <div className="space-y-2">
           {orcamentos.map(orc => {
-            const total = getOrcamentoTotal(orc);
-            const nFics = orc.projetos.reduce((s, p) => s + p.ficheiros.length, 0);
+            const nFics       = orc.projetos.reduce((s, p) => s + p.ficheiros.length, 0);
+            const defaultProj = orc.projetoDefault ? orc.projetos.find(p => p.id === orc.projetoDefault) : null;
+            const displayTotal = defaultProj ? getProjetoTotal(defaultProj) : getTotalAtivo(orc);
+            const displayLabel = defaultProj ? defaultProj.nome : null;
             return (
               <Card key={orc.id} className="hover:shadow-sm transition-shadow cursor-pointer"
                 onClick={() => irParaOrcamento(orc.id)}>
@@ -2662,7 +2683,15 @@ export default function OrcamentosPage() {
                       )}
                     </p>
                   </div>
-                  <p className="text-sm font-bold shrink-0">{formatCurrency(total)}</p>
+                  <div className="text-right shrink-0">
+                    <p className="text-sm font-bold">{formatCurrency(displayTotal)}</p>
+                    {displayLabel && (
+                      <p className="text-[10px] text-amber-600 font-medium flex items-center justify-end gap-0.5 mt-0.5">
+                        <Star className="h-2.5 w-2.5 fill-amber-500 text-amber-500" />
+                        {displayLabel}
+                      </p>
+                    )}
+                  </div>
                   <Button variant="ghost" size="sm"
                     className="text-muted-foreground hover:text-red-600 h-8 w-8 p-0 shrink-0"
                     onClick={(e) => { e.stopPropagation(); eliminarOrcamento(orc.id); }}>
