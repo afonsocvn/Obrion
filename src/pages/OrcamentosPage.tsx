@@ -444,19 +444,31 @@ function LinhaTreeTable({
 
   return (
     <div className="overflow-auto">
-      <table className="w-full text-xs border-collapse">
+      <table className="w-full text-xs border-collapse table-fixed">
+        <colgroup>
+          <col className="w-8" />
+          <col className="w-28" />
+          <col />{/* Descrição — ocupa o espaço restante */}
+          {temObs && <col className="w-40" />}
+          <col className="w-14" />
+          <col className="w-20" />
+          <col className="w-28" />
+          <col className="w-28" />
+          <col className="w-14" />
+          <col className="w-7" />
+        </colgroup>
         <thead>
           <tr className="bg-muted/50 border-b text-muted-foreground">
             <th className="w-8 px-1" />
             <th className="px-3 py-2 text-left font-medium">Cap.</th>
             <th className="px-3 py-2 text-left font-medium">Descrição</th>
-            {temObs && <th className="px-3 py-2 text-left font-medium max-w-[160px]">Obs.</th>}
-            <th className="px-3 py-2 text-right font-medium w-14">Unid.</th>
-            <th className="px-3 py-2 text-right font-medium w-20">Qtd.</th>
-            <th className="px-3 py-2 text-right font-medium w-28">P. Unit.</th>
-            <th className="px-3 py-2 text-right font-medium w-28">Total</th>
-            <th className="px-3 py-2 text-right font-medium w-16">%</th>
-            <th className="px-2 py-2 w-7" />
+            {temObs && <th className="px-3 py-2 text-left font-medium">Obs.</th>}
+            <th className="px-3 py-2 text-right font-medium">Unid.</th>
+            <th className="px-3 py-2 text-right font-medium">Qtd.</th>
+            <th className="px-3 py-2 text-right font-medium">P. Unit.</th>
+            <th className="px-3 py-2 text-right font-medium">Total</th>
+            <th className="px-3 py-2 text-right font-medium">%</th>
+            <th className="px-2 py-2" />
           </tr>
         </thead>
         <tbody>
@@ -486,16 +498,17 @@ function LinhaTreeTable({
                     </button>
                   )}
                 </td>
-                <td className="px-3 py-1.5 font-mono text-[11px] whitespace-nowrap"
+                <td className="px-3 py-1.5 font-mono text-[11px] overflow-hidden whitespace-nowrap"
+                  title={linha.numero}
                   style={{ paddingLeft: `${Math.max(0, linha.nivel - 1) * 14 + 12}px` }}>
                   {dotColor && (
                     <span className={cn('inline-block w-1.5 h-1.5 rounded-full mr-1.5 -mb-0.5', dotColor)} />
                   )}
                   {linha.numero}
                 </td>
-                <td className="px-3 py-1.5 max-w-[240px] truncate" title={linha.descricao}>{linha.descricao}</td>
+                <td className="px-3 py-1.5 overflow-hidden whitespace-nowrap" title={linha.descricao}>{linha.descricao}</td>
                 {temObs && (
-                  <td className="px-3 py-1.5 max-w-[140px] truncate text-muted-foreground italic"
+                  <td className="px-3 py-1.5 overflow-hidden whitespace-nowrap text-muted-foreground italic"
                     title={linha.observacoes}>{linha.observacoes}</td>
                 )}
                 <td className="px-3 py-1.5 text-right text-muted-foreground">{linha.unidade}</td>
@@ -1341,12 +1354,12 @@ export default function OrcamentosPage() {
         </Card>
         <Card className="mb-4 overflow-hidden">
           <div className="overflow-auto max-h-[55vh]">
-            <table className="w-full text-xs border-collapse">
+            <table className="text-xs border-collapse table-fixed" style={{ width: `${32 + colLabels.length * 160}px` }}>
               <thead className="sticky top-0 z-10">
                 <tr className="bg-muted/80 border-b">
                   <th className="px-3 py-2 text-left font-medium text-muted-foreground w-8">#</th>
                   {colLabels.map((lbl, i) => (
-                    <th key={i} className="px-2 py-2 min-w-[150px] align-top">
+                    <th key={i} className="px-2 py-2 w-40 align-top">
                       <div className="mb-1 text-muted-foreground font-normal text-center text-[11px]">Col. {lbl}</div>
                       <Select value={mapeamento[i] ?? 'ignorar'}
                         onValueChange={(v) => setMapeamentoCol(i, v as ColunaRole)}>
@@ -1374,7 +1387,7 @@ export default function OrcamentosPage() {
                     )}>
                       <td className="px-3 py-1.5 font-mono text-muted-foreground">{ri + 1}</td>
                       {colLabels.map((_, ci) => (
-                        <td key={ci} className="px-2 py-1.5 truncate max-w-[200px]"
+                        <td key={ci} className="px-2 py-1.5 overflow-hidden whitespace-nowrap"
                           title={String(arr[ci] ?? '')}>
                           {arr[ci] !== null && arr[ci] !== undefined ? String(arr[ci]) : ''}
                         </td>
