@@ -925,6 +925,14 @@ export default function OrcamentosPage() {
   // Projeto sub-view
   const [projetoModo, setProjetoModo] = useState<'ficheiros' | 'consolidado'>('consolidado');
 
+  // Local draft for orcamento characteristics (avoid auto-saving on every keystroke)
+  const emptyCarac = { m2AcimaSolo: 0, m2AbaixoSolo: 0, numApartamentos: 0, m2Retalho: 0, m2AreasComuns: 0, m2Circulacao: 0, m2AreasTecnicas: 0, m2Terracos: 0 };
+  const [caracDraft, setCaracDraft] = useState(emptyCarac);
+  useEffect(() => {
+    const o = orcamentos.find(x => x.id === selectedOrcId);
+    if (o) setCaracDraft({ m2AcimaSolo: o.m2AcimaSolo, m2AbaixoSolo: o.m2AbaixoSolo, numApartamentos: o.numApartamentos, m2Retalho: o.m2Retalho, m2AreasComuns: o.m2AreasComuns, m2Circulacao: o.m2Circulacao, m2AreasTecnicas: o.m2AreasTecnicas, m2Terracos: o.m2Terracos });
+  }, [selectedOrcId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Comparison controls
   const [expandedCaps, setExpandedCaps]         = useState<Set<string>>(new Set());
   const [ignoredCaps, setIgnoredCaps]           = useState<Set<string>>(new Set());
@@ -2965,10 +2973,18 @@ export default function OrcamentosPage() {
         {/* Características do projeto */}
         <Card className="mb-5">
           <CardHeader className="pb-2 pt-4 px-5">
-            <CardTitle className="text-sm font-semibold flex items-center gap-2">
-              <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
-              Características do Projeto
-            </CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
+                Características do Projeto
+              </CardTitle>
+              <Button size="sm" className="h-7 text-xs gap-1.5" onClick={() => {
+                updateOrcamentos(prev => prev.map(o => o.id === selectedOrc.id ? { ...o, ...caracDraft } : o));
+                toast.success('Características guardadas');
+              }}>
+                <Save className="h-3 w-3" /> Guardar
+              </Button>
+            </div>
           </CardHeader>
           <CardContent className="pb-4 px-5 space-y-4">
             {/* Áreas principais */}
@@ -2987,14 +3003,12 @@ export default function OrcamentosPage() {
                     <Label className="text-xs text-muted-foreground">{label}</Label>
                     <Input
                       type="number" min={0} className="mt-1 h-8"
-                      value={(selectedOrc[field] as number) || ''}
+                      value={caracDraft[field] || ''}
                       placeholder="0"
-                      onChange={(e) => atualizarCaracteristica(
-                        selectedOrc.id, field,
-                        field === 'numApartamentos'
-                          ? parseInt(e.target.value) || 0
-                          : parseFloat(e.target.value) || 0,
-                      )}
+                      onChange={(e) => setCaracDraft(prev => ({
+                        ...prev,
+                        [field]: field === 'numApartamentos' ? parseInt(e.target.value) || 0 : parseFloat(e.target.value) || 0,
+                      }))}
                     />
                   </div>
                 ))}
@@ -3017,42 +3031,44 @@ export default function OrcamentosPage() {
                     <Label className="text-xs text-muted-foreground">{label}</Label>
                     <Input
                       type="number" min={0} className="mt-1 h-8"
-                      value={(selectedOrc[field] as number) || ''}
+                      value={caracDraft[field] || ''}
                       placeholder="0"
-                      onChange={(e) => atualizarCaracteristica(
-                        selectedOrc.id, field, parseFloat(e.target.value) || 0,
-                      )}
+                      onChange={(e) => setCaracDraft(prev => ({
+                        ...prev,
+                        [field]: parseFloat(e.target.value) || 0,
+                      }))}
                     />
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* Derived metrics */}
+            {/* Derived metrics — use totalAtivo (mean of latest version) not sum of all */}
             {(() => {
-              const m2Total = selectedOrc.m2AcimaSolo + selectedOrc.m2AbaixoSolo;
-              const m2Util  = selectedOrc.m2AcimaSolo + selectedOrc.m2AbaixoSolo
-                - selectedOrc.m2AreasComuns - selectedOrc.m2Circulacao
-                - selectedOrc.m2AreasTecnicas;
-              if (totalOrc === 0 || m2Total === 0) return null;
+              const m2Total = caracDraft.m2AcimaSolo + caracDraft.m2AbaixoSolo;
+              const m2Util  = caracDraft.m2AcimaSolo + caracDraft.m2AbaixoSolo
+                - caracDraft.m2AreasComuns - caracDraft.m2Circulacao
+                - caracDraft.m2AreasTecnicas;
+              if (totalAtivo === 0 || m2Total === 0) return null;
               return (
                 <div className="pt-3 border-t flex flex-wrap gap-x-6 gap-y-1.5 text-xs text-muted-foreground">
+                  <span className="text-[10px] text-muted-foreground w-full">Índices sobre a média da versão activa</span>
                   <span>Custo/m² total: <span className="font-semibold text-foreground">
-                    {formatCurrency(Math.round(totalOrc / m2Total))}/m²
+                    {formatCurrency(Math.round(totalAtivo / m2Total))}/m²
                   </span></span>
                   {m2Util > 0 && (
                     <span>Custo/m² útil: <span className="font-semibold text-foreground">
-                      {formatCurrency(Math.round(totalOrc / m2Util))}/m²
+                      {formatCurrency(Math.round(totalAtivo / m2Util))}/m²
                     </span></span>
                   )}
-                  {selectedOrc.numApartamentos > 0 && (
+                  {caracDraft.numApartamentos > 0 && (
                     <span>Custo/apartamento: <span className="font-semibold text-foreground">
-                      {formatCurrency(Math.round(totalOrc / selectedOrc.numApartamentos))}
+                      {formatCurrency(Math.round(totalAtivo / caracDraft.numApartamentos))}
                     </span></span>
                   )}
-                  {selectedOrc.m2Retalho > 0 && (
+                  {caracDraft.m2Retalho > 0 && (
                     <span>Custo/m² retalho: <span className="font-semibold text-foreground">
-                      {formatCurrency(Math.round(totalOrc / selectedOrc.m2Retalho))}/m²
+                      {formatCurrency(Math.round(totalAtivo / caracDraft.m2Retalho))}/m²
                     </span></span>
                   )}
                 </div>
