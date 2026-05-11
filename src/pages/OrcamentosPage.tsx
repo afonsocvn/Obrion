@@ -2533,8 +2533,8 @@ export default function OrcamentosPage() {
                     {projsSel.map((p, i) => {
                       const v          = adjTotais[i];
                       const isTotBase  = isEvolucao && i === 0;
-                      const totVsFirst = isEvolucao && i > 0 ? v - adjTotais[0] : null;
-                      const totVsFirstPct = totVsFirst != null && adjTotais[0] > 0 ? (totVsFirst / adjTotais[0]) * 100 : null;
+                      const totVsPrev  = isEvolucao && i > 0 ? v - adjTotais[i - 1] : null;
+                      const totVsPrevPct = totVsPrev != null && adjTotais[i - 1] > 0 ? (totVsPrev / adjTotais[i - 1]) * 100 : null;
                       const diff = adjStats ? v - adjStats.media : 0;
                       const pct  = !isDiff && !isEvolucao && adjStats && adjStats.media > 0 ? (diff / adjStats.media) * 100 : null;
                       return (
@@ -2546,11 +2546,12 @@ export default function OrcamentosPage() {
                           {isTotBase && (
                             <div className="text-[10px] text-muted-foreground">referência</div>
                           )}
-                          {totVsFirst != null && (
+                          {totVsPrev != null && (
                             <div className={cn('text-[10px] tabular-nums font-normal',
-                              totVsFirst > 0 ? 'text-red-500' : 'text-green-600')}>
-                              {totVsFirst > 0 ? '+' : ''}{formatCurrency(totVsFirst)}
-                              {totVsFirstPct != null && <span className="ml-0.5 opacity-75">({totVsFirstPct > 0 ? '+' : ''}{totVsFirstPct.toFixed(1)}%)</span>}
+                              totVsPrev > 0 ? 'text-red-500' : 'text-green-600')}>
+                              {totVsPrev > 0 ? '+' : ''}{formatCurrency(totVsPrev)}
+                              {totVsPrevPct != null && <span className="ml-0.5 opacity-75">({totVsPrevPct > 0 ? '+' : ''}{totVsPrevPct.toFixed(1)}%)</span>}
+                              <span className="opacity-50 ml-0.5">vs ant.</span>
                             </div>
                           )}
                           {/* Competitor: delta from mean */}
