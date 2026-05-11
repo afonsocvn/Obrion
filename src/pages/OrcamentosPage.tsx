@@ -2531,14 +2531,29 @@ export default function OrcamentosPage() {
                       Total{ignoredCaps.size > 0 && <span className="text-[10px] font-normal text-muted-foreground ml-1.5">({ignoredCaps.size} cap. excluído{ignoredCaps.size !== 1 ? 's' : ''})</span>}
                     </td>
                     {projsSel.map((p, i) => {
-                      const v    = adjTotais[i];
+                      const v          = adjTotais[i];
+                      const isTotBase  = isEvolucao && i === 0;
+                      const totVsFirst = isEvolucao && i > 0 ? v - adjTotais[0] : null;
+                      const totVsFirstPct = totVsFirst != null && adjTotais[0] > 0 ? (totVsFirst / adjTotais[0]) * 100 : null;
                       const diff = adjStats ? v - adjStats.media : 0;
-                      const pct  = !isDiff && adjStats && adjStats.media > 0 ? (diff / adjStats.media) * 100 : null;
+                      const pct  = !isDiff && !isEvolucao && adjStats && adjStats.media > 0 ? (diff / adjStats.media) * 100 : null;
                       return (
                         <td key={p.id} className="px-3 py-2 text-right">
                           <div className="tabular-nums" style={{ color: ORC_PALETTE[i % ORC_PALETTE.length] }}>
                             {formatCurrency(v)}
                           </div>
+                          {/* Evolution: V1 = ref, V2+ = delta from V1 */}
+                          {isTotBase && (
+                            <div className="text-[10px] text-muted-foreground">referência</div>
+                          )}
+                          {totVsFirst != null && (
+                            <div className={cn('text-[10px] tabular-nums font-normal',
+                              totVsFirst > 0 ? 'text-red-500' : 'text-green-600')}>
+                              {totVsFirst > 0 ? '+' : ''}{formatCurrency(totVsFirst)}
+                              {totVsFirstPct != null && <span className="ml-0.5 opacity-75">({totVsFirstPct > 0 ? '+' : ''}{totVsFirstPct.toFixed(1)}%)</span>}
+                            </div>
+                          )}
+                          {/* Competitor: delta from mean */}
                           {pct !== null && Math.abs(pct) > 0.05 && (
                             <div className={cn('text-[10px] tabular-nums font-normal',
                               diff > 0 ? 'text-red-500' : 'text-green-600')}>
