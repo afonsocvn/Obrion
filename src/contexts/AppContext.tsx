@@ -39,6 +39,16 @@ function rowToProjeto(row: Record<string, unknown>): Projeto {
     criadoEm: row.criado_em as string,
     fracoes: (row.fracoes as Projeto['fracoes']) ?? [],
     tarefas: (row.tarefas as Projeto['tarefas']) ?? [],
+    tipo: (row.tipo as Projeto['tipo']) ?? 'estimativa',
+    parentId: (row.parent_id as string) ?? null,
+    m2AcimaSolo: Number(row.m2_acima_solo) || 0,
+    m2AbaixoSolo: Number(row.m2_abaixo_solo) || 0,
+    numApartamentos: Number(row.num_apartamentos) || 0,
+    m2Retalho: Number(row.m2_retalho) || 0,
+    m2AreasComuns: Number(row.m2_areas_comuns) || 0,
+    m2Circulacao: Number(row.m2_circulacao) || 0,
+    m2AreasTecnicas: Number(row.m2_areas_tecnicas) || 0,
+    m2Terracos: Number(row.m2_terracos) || 0,
   };
 }
 
@@ -90,6 +100,16 @@ function projetoToRow(p: Projeto, userId: string, workspaceId: string | null) {
     criado_em: p.criadoEm,
     fracoes: p.fracoes,
     tarefas: p.tarefas,
+    tipo: p.tipo ?? 'estimativa',
+    parent_id: p.parentId ?? null,
+    m2_acima_solo: p.m2AcimaSolo ?? 0,
+    m2_abaixo_solo: p.m2AbaixoSolo ?? 0,
+    num_apartamentos: p.numApartamentos ?? 0,
+    m2_retalho: p.m2Retalho ?? 0,
+    m2_areas_comuns: p.m2AreasComuns ?? 0,
+    m2_circulacao: p.m2Circulacao ?? 0,
+    m2_areas_tecnicas: p.m2AreasTecnicas ?? 0,
+    m2_terracos: p.m2Terracos ?? 0,
   };
 }
 

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '@/contexts/AppContext';
+import { cn } from '@/lib/utils';
 import { Fracao, Projeto, Divisao, TIPOLOGIAS, NIVEIS_QUALIDADE, TIPOS_DIVISAO, TipoDivisao } from '@/types/project';
 import { v4 } from '@/lib/utils';
 import { gerarTarefas } from '@/lib/wbs';
@@ -52,9 +53,17 @@ const defaultDivisoes = (): Divisao[] => [
 ];
 
 export default function NovoProjeto() {
-  const { adicionarProjeto } = useApp();
+  const { adicionarProjeto, projetos } = useApp();
   const navigate = useNavigate();
   const [nome, setNome] = useState('');
+  const [parentId, setParentId] = useState<string>(() => sessionStorage.getItem('novaEstimativaParentId') ?? '');
+
+  useEffect(() => {
+    const pid = sessionStorage.getItem('novaEstimativaParentId');
+    if (pid) { setParentId(pid); sessionStorage.removeItem('novaEstimativaParentId'); }
+  }, []);
+
+  const projetosTopo = projetos.filter(p => p.tipo === 'projeto');
   const [fracoes, setFracoes] = useState<Fracao[]>([
     { id: v4(), nome: 'Fração A', tipologia: 'T2', divisoes: defaultDivisoes(), qualidade: 'Médio', quantidade: 1 },
   ]);
@@ -118,6 +127,8 @@ export default function NovoProjeto() {
       criadoEm: new Date().toISOString(),
       fracoes,
       tarefas: todasTarefas,
+      tipo: 'estimativa',
+      parentId: parentId || null,
     };
     adicionarProjeto(projeto);
     navigate(`/projeto/${projeto.id}`);
@@ -132,20 +143,36 @@ export default function NovoProjeto() {
           </Button>
         </Link>
         <div>
-          <h1 className="section-title">Novo Projeto</h1>
-          <p className="section-subtitle mt-0.5">Configure o projeto e as suas frações</p>
+          <h1 className="section-title">Nova Estimativa</h1>
+          <p className="section-subtitle mt-0.5">Configure a estimativa e as suas frações</p>
         </div>
       </div>
 
       <div className="max-w-6xl space-y-6">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Informação do Projeto</CardTitle>
+            <CardTitle className="text-base">Informação da Estimativa</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="max-w-md">
-              <Label htmlFor="nome">Nome do Projeto</Label>
-              <Input id="nome" placeholder="Ex: Edifício Residencial Alfa" value={nome} onChange={e => setNome(e.target.value)} className="mt-1.5" />
+            <div className="max-w-md space-y-4">
+              <div>
+                <Label htmlFor="nome">Nome da Estimativa</Label>
+                <Input id="nome" placeholder="Ex: Estimativa Base V1" value={nome} onChange={e => setNome(e.target.value)} className="mt-1.5" />
+              </div>
+              {projetosTopo.length > 0 && (
+                <div>
+                  <Label className="text-sm">Projeto <span className="text-muted-foreground font-normal">(opcional)</span></Label>
+                  <Select value={parentId || '__none__'} onValueChange={v => setParentId(v === '__none__' ? '' : v)}>
+                    <SelectTrigger className="mt-1.5">
+                      <SelectValue placeholder="Associar a um projeto…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">— Sem projeto —</SelectItem>
+                      {projetosTopo.map(p => <SelectItem key={p.id} value={p.id}>{p.nome}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

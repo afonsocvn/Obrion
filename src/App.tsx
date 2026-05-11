@@ -10,6 +10,7 @@ import AppLayout from "@/components/AppLayout";
 import Dashboard from "./pages/Dashboard";
 import NovoProjeto from "./pages/NovoProjeto";
 import ProjetoDetalhe from "./pages/ProjetoDetalhe";
+import EstimativasPage from "./pages/EstimativasPage";
 import MateriaisPage from "./pages/MateriaisPage";
 import MaoDeObraPage from "./pages/MaoDeObraPage";
 import OrcamentosPage from "./pages/OrcamentosPage";
@@ -59,6 +60,7 @@ const App = () => (
                         <Route path="/" element={<Dashboard />} />
                         <Route path="/novo-projeto" element={<NovoProjeto />} />
                         <Route path="/projeto/:id" element={<ProjetoDetalhe />} />
+                        <Route path="/estimativas" element={<EstimativasPage />} />
                         <Route path="/materiais" element={<MateriaisPage />} />
                         <Route path="/mao-de-obra" element={<MaoDeObraPage />} />
                         <Route path="/orcamentos" element={<OrcamentosPage />} />

@@ -1,12 +1,15 @@
 import { useState, useMemo } from 'react';
 import { useApp } from '@/contexts/AppContext';
-import { Link } from 'react-router-dom';
-import { Plus, Copy, Trash2, ArrowRight } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Plus, Copy, Trash2, ArrowRight, BarChart2, Layers } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { formatCurrency } from '@/lib/utils';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { formatCurrency, v4 } from '@/lib/utils';
 import { calcularResumo } from '@/lib/wbs';
 import { CATEGORIAS_MATERIAL, TIPOS_MATERIAL } from '@/types/project';
 import CostDistributionChart from '@/components/CostDistributionChart';
@@ -14,11 +17,35 @@ import { resolverGama, GamaBadge } from '@/pages/MateriaisPage';
 import MigracaoBanner from '@/components/MigracaoBanner';
 
 export default function Dashboard() {
-  const { projetos, duplicarProjeto, eliminarProjeto, materiais } = useApp();
+  const { projetos, adicionarProjeto, duplicarProjeto, eliminarProjeto, materiais } = useApp();
+  const navigate = useNavigate();
 
   const [filtroCategoria, setFiltroCategoria] = useState('todas');
   const [filtroMaterial, setFiltroMaterial] = useState('todos');
   const [confirmarEliminar, setConfirmarEliminar] = useState<string | null>(null);
+  const [showNovoProjeto, setShowNovoProjeto] = useState(false);
+  const [nomeNovoProjeto, setNomeNovoProjeto] = useState('');
+
+  const projetosTopo = useMemo(() => projetos.filter(p => p.tipo === 'projeto'), [projetos]);
+  const estimativas   = useMemo(() => projetos.filter(p => p.tipo === 'estimativa' || !p.tipo), [projetos]);
+
+  const criarProjeto = () => {
+    const nome = nomeNovoProjeto.trim();
+    if (!nome) return;
+    const novo = { id: v4(), nome, criadoEm: new Date().toISOString(), fracoes: [], tarefas: [], tipo: 'projeto' as const, parentId: null };
+    adicionarProjeto(novo);
+    setNomeNovoProjeto(''); setShowNovoProjeto(false);
+    navigate(`/projeto/${novo.id}`);
+  };
+
+  const propostasCount = useMemo(() => {
+    try {
+      const raw: any[] = JSON.parse(localStorage.getItem('orcamentos_v2') ?? '[]');
+      const map: Record<string, number> = {};
+      for (const o of raw) if (o.projetoId) map[o.projetoId] = (map[o.projetoId] ?? 0) + 1;
+      return map;
+    } catch { return {} as Record<string, number>; }
+  }, [projetosTopo]);
 
   const tiposDisponiveis = filtroCategoria !== 'todas' ? (TIPOS_MATERIAL[filtroCategoria] ?? []) : [];
 
@@ -41,31 +68,33 @@ export default function Dashboard() {
           <h1 className="section-title">Dashboard</h1>
           <p className="section-subtitle mt-1">Visão geral dos seus projetos de construção</p>
         </div>
-        <Link to="/novo-projeto">
-          <Button>
-            <Plus className="h-4 w-4 mr-2" />
-            Novo Projeto
-          </Button>
-        </Link>
+        <Button onClick={() => setShowNovoProjeto(true)}>
+          <Plus className="h-4 w-4 mr-2" />
+          Novo Projeto
+        </Button>
       </div>
 
-      {projetos.length === 0 ? (
+      {projetosTopo.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16">
             <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mb-4">
               <Plus className="h-6 w-6 text-muted-foreground" />
             </div>
             <h3 className="text-lg font-medium mb-1">Sem projetos</h3>
-            <p className="text-muted-foreground text-sm mb-4">Crie o seu primeiro projeto para começar a planear.</p>
-            <Link to="/novo-projeto">
-              <Button>Criar Projeto</Button>
-            </Link>
+            <p className="text-muted-foreground text-sm mb-4">Crie o seu primeiro projeto para agrupar estimativas e orçamentos.</p>
+            <Button onClick={() => setShowNovoProjeto(true)}>Criar Projeto</Button>
           </CardContent>
         </Card>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {projetos.map((projeto) => {
-            const resumo = calcularResumo(projeto.tarefas);
+          {projetosTopo.map((projeto) => {
+            const nEst = estimativas.filter(e => e.parentId === projeto.id).length;
+            const m2Total = (projeto.m2AcimaSolo ?? 0) + (projeto.m2AbaixoSolo ?? 0);
+            const infoItems = [
+              m2Total > 0 && `${m2Total} m²`,
+              (projeto.numApartamentos ?? 0) > 0 && `${projeto.numApartamentos} apt.`,
+              (projeto.m2Retalho ?? 0) > 0 && `Retalho ${projeto.m2Retalho} m²`,
+            ].filter(Boolean) as string[];
             return (
               <Card key={projeto.id} className="group hover:shadow-md transition-shadow">
                 <CardContent className="p-5">
@@ -73,45 +102,38 @@ export default function Dashboard() {
                     <div className="min-w-0 flex-1">
                       <h3 className="font-semibold text-base truncate">{projeto.nome}</h3>
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        {projeto.fracoes.length} {projeto.fracoes.length === 1 ? 'fração' : 'frações'} · Criado em{' '}
-                        {new Date(projeto.criadoEm).toLocaleDateString('pt-PT')}
+                        {infoItems.length > 0 ? infoItems.join(' · ') : 'Sem dados de área'}
+                        {' · '}Criado em {new Date(projeto.criadoEm).toLocaleDateString('pt-PT')}
                       </p>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-2 mb-4">
-                    <div className="bg-muted rounded-md px-2.5 py-2">
-                      <p className="text-xs text-muted-foreground">Material</p>
-                      <p className="text-sm font-medium mono">{formatCurrency(resumo.totalMaterial)}</p>
+                  <div className="grid grid-cols-2 gap-2 mb-3">
+                    <div className="bg-muted rounded-md px-2.5 py-2 flex items-center gap-2">
+                      <Layers className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      <div>
+                        <p className="text-xs text-muted-foreground">Estimativas</p>
+                        <p className="text-sm font-semibold">{nEst}</p>
+                      </div>
                     </div>
-                    <div className="bg-muted rounded-md px-2.5 py-2">
-                      <p className="text-xs text-muted-foreground">Mão de Obra</p>
-                      <p className="text-sm font-medium mono">{formatCurrency(resumo.totalMaoObra)}</p>
-                    </div>
-                    <div className="bg-muted rounded-md px-2.5 py-2">
-                      <p className="text-xs text-muted-foreground">Margem</p>
-                      <p className="text-sm font-medium mono">{formatCurrency(resumo.totalMargem)}</p>
+                    <div className="bg-muted rounded-md px-2.5 py-2 flex items-center gap-2">
+                      <BarChart2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      <div>
+                        <p className="text-xs text-muted-foreground">Propostas</p>
+                        <p className="text-sm font-semibold">{propostasCount[projeto.id] ?? 0}</p>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between border-t pt-3">
-                    <div>
-                      <p className="text-xs text-muted-foreground">Custo Total</p>
-                      <p className="text-lg font-semibold text-primary mono">{formatCurrency(resumo.total)}</p>
-                    </div>
-                    <div className="flex gap-1">
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => duplicarProjeto(projeto.id)} title="Duplicar">
-                        <Copy className="h-3.5 w-3.5" />
+                  <div className="flex items-center justify-end border-t pt-3 gap-1">
+                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setConfirmarEliminar(projeto.id)} title="Eliminar">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                    <Link to={`/projeto/${projeto.id}`}>
+                      <Button variant="ghost" size="icon" className="h-8 w-8">
+                        <ArrowRight className="h-3.5 w-3.5" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setConfirmarEliminar(projeto.id)} title="Eliminar">
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                      <Link to={`/projeto/${projeto.id}`}>
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
-                          <ArrowRight className="h-3.5 w-3.5" />
-                        </Button>
-                      </Link>
-                    </div>
+                    </Link>
                   </div>
                 </CardContent>
               </Card>
@@ -140,16 +162,33 @@ export default function Dashboard() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {projetos.length > 0 && (
+      {estimativas.length > 0 && (
         <div className="mt-8">
-          <h2 className="text-lg font-semibold mb-4">Distribuição de Custos (Todos os Projetos)</h2>
+          <h2 className="text-lg font-semibold mb-4">Distribuição de Custos (Todas as Estimativas)</h2>
           <Card>
             <CardContent className="p-6">
-              <CostDistributionChart tarefas={projetos.flatMap(p => p.tarefas)} />
+              <CostDistributionChart tarefas={estimativas.flatMap(p => p.tarefas)} />
             </CardContent>
           </Card>
         </div>
       )}
+
+      {/* Diálogo: Novo Projeto */}
+      <Dialog open={showNovoProjeto} onOpenChange={o => { setShowNovoProjeto(o); if (!o) setNomeNovoProjeto(''); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Novo Projeto</DialogTitle></DialogHeader>
+          <div className="py-2">
+            <Label htmlFor="proj-nome" className="text-sm">Nome do projeto</Label>
+            <Input id="proj-nome" className="mt-1.5" placeholder="Ex: Edifício Rua das Flores"
+              value={nomeNovoProjeto} onChange={e => setNomeNovoProjeto(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && criarProjeto()} autoFocus />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowNovoProjeto(false)}>Cancelar</Button>
+            <Button onClick={criarProjeto} disabled={!nomeNovoProjeto.trim()}>Criar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Materials section */}
       <div className="mt-10">

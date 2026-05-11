@@ -18,7 +18,7 @@ import { supabase } from '@/lib/supabase';
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/novo-projeto', label: 'Novo Projeto', icon: FolderPlus },
+  { to: '/estimativas', label: 'Estimativas', icon: FolderPlus },
   { to: '/materiais', label: 'Materiais', icon: Package },
   { to: '/mao-de-obra', label: 'Mão de Obra', icon: HardHat },
   { to: '/orcamentos', label: 'Orçamentos', icon: Calculator },

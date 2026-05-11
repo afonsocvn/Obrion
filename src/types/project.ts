@@ -85,6 +85,16 @@ export interface Projeto {
   criadoEm: string;
   fracoes: Fracao[];
   tarefas: TarefaCusto[];
+  tipo?: 'projeto' | 'estimativa';
+  parentId?: string | null;
+  m2AcimaSolo?: number;
+  m2AbaixoSolo?: number;
+  numApartamentos?: number;
+  m2Retalho?: number;
+  m2AreasComuns?: number;
+  m2Circulacao?: number;
+  m2AreasTecnicas?: number;
+  m2Terracos?: number;
 }
 
 export interface MaoDeObra {

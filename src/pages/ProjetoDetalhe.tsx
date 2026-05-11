@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useApp } from '@/contexts/AppContext';
+import { supabase } from '@/lib/supabase';
 import { TarefaCusto, Fracao, Material, MaoDeObra, TemplateDivisao, TemplateTarefa, TIPOS_MATERIAL, TIPOS_DIVISAO, Divisao } from '@/types/project';
 import { calcularCustoTarefa, calcularResumo, gerarTarefas, getTemplatesSubcapitulo, normalizarSubcapitulo, MULTIPLICADORES_QUALIDADE, TemplateTask } from '@/lib/wbs';
 import { formatCurrency, v4 } from '@/lib/utils';
@@ -10,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Card, CardContent } from '@/components/ui/card';
-import { ArrowLeft, ChevronDown, ChevronRight, ChevronLeft, Search, ImagePlus, X, Plus, Trash2, Pencil, Check, ZoomIn, Bookmark, BookmarkCheck, FileDown } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ChevronRight, ChevronLeft, Search, ImagePlus, X, Plus, Trash2, Pencil, Check, ZoomIn, Bookmark, BookmarkCheck, FileDown, FolderOpen, BarChart2, Layers } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import CostDistributionChart from '@/components/CostDistributionChart';
 import MaterialPicker from '@/components/MaterialPicker';
@@ -23,6 +24,76 @@ export default function ProjetoDetalhe() {
   const { projetos, atualizarProjeto, materiais, maoDeObra, templates, adicionarTemplate } = useApp();
   const navigate = useNavigate();
   const projeto = projetos.find(p => p.id === id);
+
+  const [activeTab, setActiveTab] = useState<'estimativas' | 'orcamentos'>('estimativas');
+
+  type OrcResumo = { id: string; nome: string; criadoEm: string; nPropostas: number; total: number };
+  const [orcamentosProj, setOrcamentosProj] = useState<OrcResumo[]>(() => {
+    // Conta propostas do cache local imediatamente (para o header mostrar o nº correto)
+    try {
+      const raw: any[] = JSON.parse(localStorage.getItem('orcamentos_v2') ?? '[]');
+      return raw
+        .filter(o => o.projetoId === id)
+        .map(o => ({
+          id: o.id, nome: o.nome, criadoEm: o.criadoEm,
+          nPropostas: (o.projetos ?? []).length,
+          total: (o.projetos ?? []).reduce((s: number, p: any) =>
+            s + (p.ficheiros ?? []).reduce((sf: number, f: any) => sf + (f.total ?? 0), 0), 0),
+        }));
+    } catch { return []; }
+  });
+  const [loadingOrc, setLoadingOrc] = useState(false);
+
+  // Recarrega propostas sempre que o tab fica ativo ou o id muda
+  // Lê do cache local (localStorage) + Supabase para garantir dados mesmo sem sync
+  useEffect(() => {
+    if (!id || activeTab !== 'orcamentos') return;
+    setLoadingOrc(true);
+
+    // Lê do cache local imediatamente
+    const fromLocal = (): OrcResumo[] => {
+      try {
+        const raw: any[] = JSON.parse(localStorage.getItem('orcamentos_v2') ?? '[]');
+        return raw
+          .filter(o => o.projetoId === id)
+          .map(o => ({
+            id: o.id,
+            nome: o.nome,
+            criadoEm: o.criadoEm,
+            nPropostas: (o.projetos ?? []).length,
+            total: (o.projetos ?? []).reduce((s: number, p: any) =>
+              s + (p.ficheiros ?? []).reduce((sf: number, f: any) => sf + (f.total ?? 0), 0), 0),
+          }));
+      } catch { return []; }
+    };
+
+    const local = fromLocal();
+    if (local.length > 0) {
+      setOrcamentosProj(local);
+      setLoadingOrc(false);
+    }
+
+    // Também tenta buscar do Supabase (para ter dados de outros dispositivos)
+    supabase.from('orcamentos')
+      .select(`id, nome, criado_em, projeto_default, orcamento_projetos(id, versao, orcamento_ficheiros(total))`)
+      .eq('projeto_id', id)
+      .then(({ data }) => {
+        const db: OrcResumo[] = (data ?? []).map((row: any) => {
+          const projs: any[] = row.orcamento_projetos ?? [];
+          const defProj = row.projeto_default ? projs.find((p: any) => p.id === row.projeto_default) : null;
+          const totalProj = (p: any) => (p.orcamento_ficheiros ?? []).reduce((s: number, f: any) => s + (f.total ?? 0), 0);
+          const total = defProj ? totalProj(defProj) : (projs.length > 0 ? Math.max(...projs.map(totalProj), 0) : 0);
+          return { id: row.id, nome: row.nome, criadoEm: row.criado_em, nPropostas: projs.length, total };
+        });
+        // Junta: prioridade ao Supabase, complementa com locais ainda não sincronizados
+        const merged = [...db];
+        for (const lo of local) {
+          if (!merged.find(o => o.id === lo.id)) merged.push(lo);
+        }
+        setOrcamentosProj(merged);
+        setLoadingOrc(false);
+      });
+  }, [id, activeTab]);
 
   const [filtroFracoes, setFiltroFracoes] = useState<Set<string>>(new Set());
   const [filtroCapitulo, setFiltroCapitulo] = useState<string>('todos');
@@ -99,6 +170,190 @@ export default function ProjetoDetalhe() {
       <div className="page-container">
         <p className="text-muted-foreground">Projeto não encontrado.</p>
         <Link to="/"><Button variant="outline" className="mt-4">Voltar</Button></Link>
+      </div>
+    );
+  }
+
+  // ── Projeto container (tipo='projeto') ──────────────────────────────────────
+  if (projeto.tipo === 'projeto') {
+    const estimativasProj = projetos.filter(p => (p.tipo === 'estimativa' || !p.tipo) && p.parentId === projeto.id);
+
+    const setCaract = (field: keyof typeof projeto, val: number) =>
+      atualizarProjeto({ ...projeto, [field]: val });
+
+    const m2Total = (projeto.m2AcimaSolo ?? 0) + (projeto.m2AbaixoSolo ?? 0);
+
+    return (
+      <div className="animate-fade-in px-3 py-3">
+        <div className="flex items-center gap-3 mb-3">
+          <Link to="/">
+            <Button variant="ghost" size="icon" className="h-8 w-8"><ArrowLeft className="h-4 w-4" /></Button>
+          </Link>
+          <div className="flex-1">
+            <h1 className="section-title">{projeto.nome}</h1>
+            <p className="section-subtitle mt-0.5">
+              {estimativasProj.length} estimativa(s) · {orcamentosProj.length} orçamento(s)
+              {m2Total > 0 && ` · ${m2Total} m²`}
+              {(projeto.numApartamentos ?? 0) > 0 && ` · ${projeto.numApartamentos} apt.`}
+            </p>
+          </div>
+        </div>
+
+        {/* Características do Projeto */}
+        <Card className="mb-4 bg-slate-50/60">
+          <CardContent className="py-3 px-4">
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-3">Características do Projeto</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+              {([
+                ['m2AcimaSolo',    'm² acima do solo'],
+                ['m2AbaixoSolo',   'm² abaixo do solo'],
+                ['m2Retalho',      'm² retalho'],
+                ['numApartamentos','Nº apartamentos'],
+              ] as const).map(([field, label]) => (
+                <div key={field}>
+                  <label className="text-xs text-muted-foreground">{label}</label>
+                  <input type="number" min={0}
+                    className="mt-1 h-8 w-full rounded-md border border-input bg-background px-3 text-xs"
+                    value={(projeto[field] as number) || ''}
+                    placeholder="0"
+                    onChange={e => setCaract(field, field === 'numApartamentos' ? parseInt(e.target.value) || 0 : parseFloat(e.target.value) || 0)}
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {([
+                ['m2AreasComuns',   'Áreas comuns (m²)'],
+                ['m2Circulacao',    'Circulação (m²)'],
+                ['m2AreasTecnicas', 'Áreas técnicas (m²)'],
+                ['m2Terracos',      'Terraços (m²)'],
+              ] as const).map(([field, label]) => (
+                <div key={field}>
+                  <label className="text-xs text-muted-foreground">{label}</label>
+                  <input type="number" min={0}
+                    className="mt-1 h-8 w-full rounded-md border border-input bg-background px-3 text-xs"
+                    value={(projeto[field] as number) || ''}
+                    placeholder="0"
+                    onChange={e => setCaract(field, parseFloat(e.target.value) || 0)}
+                  />
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Tabs */}
+        <div className="flex border-b mb-4">
+          {(['estimativas', 'orcamentos'] as const).map(tab => (
+            <button key={tab} onClick={() => setActiveTab(tab as any)}
+              className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                activeTab === tab
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-muted-foreground hover:text-foreground'}`}>
+              {tab === 'estimativas'
+                ? `Estimativas${estimativasProj.length > 0 ? ` (${estimativasProj.length})` : ''}`
+                : `Propostas${orcamentosProj.length > 0 ? ` (${orcamentosProj.length})` : ''}`}
+            </button>
+          ))}
+        </div>
+
+        {/* Tab: Estimativas */}
+        {activeTab !== 'orcamentos' && (
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-xs text-muted-foreground">Modelos de custo para este projeto.</p>
+              <Button size="sm" className="gap-1.5" onClick={() => {
+                sessionStorage.setItem('novaEstimativaParentId', projeto.id);
+                navigate('/novo-projeto');
+              }}>
+                <Plus className="h-3.5 w-3.5" /> Nova Estimativa
+              </Button>
+            </div>
+            {estimativasProj.length === 0 ? (
+              <div className="text-center py-14 border-2 border-dashed rounded-xl text-muted-foreground">
+                <Layers className="h-9 w-9 mx-auto mb-3 opacity-20" />
+                <p className="text-sm font-medium">Sem estimativas para este projeto.</p>
+                <p className="text-xs mt-1 mb-4">Crie uma estimativa para modelar os custos de construção.</p>
+                <Button variant="outline" size="sm" className="gap-1.5" onClick={() => {
+                  sessionStorage.setItem('novaEstimativaParentId', projeto.id);
+                  navigate('/novo-projeto');
+                }}>
+                  <Plus className="h-3.5 w-3.5" /> Criar primeira estimativa
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {estimativasProj.map(est => {
+                  const resumo = calcularResumo(est.tarefas);
+                  return (
+                    <Card key={est.id} className="hover:shadow-sm transition-shadow cursor-pointer"
+                      onClick={() => navigate(`/projeto/${est.id}`)}>
+                      <CardContent className="py-3 px-4 flex items-center gap-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{est.nome}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {est.fracoes.length} fração(ões) · {new Date(est.criadoEm).toLocaleDateString('pt-PT')}
+                          </p>
+                        </div>
+                        <p className="text-sm font-bold shrink-0">{resumo.total > 0 ? formatCurrency(resumo.total) : '—'}</p>
+                        <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Tab: Orçamentos */}
+        {activeTab === 'orcamentos' && (
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-xs text-muted-foreground">Propostas de empreiteiros e fornecedores.</p>
+              <Button size="sm" className="gap-1.5" onClick={() => {
+                sessionStorage.setItem('newOrcProjetoId', projeto.id);
+                navigate('/orcamentos');
+              }}>
+                <Plus className="h-3.5 w-3.5" /> Nova Proposta
+              </Button>
+            </div>
+            {loadingOrc ? (
+              <p className="text-sm text-muted-foreground py-6 text-center">A carregar…</p>
+            ) : orcamentosProj.length === 0 ? (
+              <div className="text-center py-14 border-2 border-dashed rounded-xl text-muted-foreground">
+                <BarChart2 className="h-9 w-9 mx-auto mb-3 opacity-20" />
+                <p className="text-sm font-medium">Sem propostas para este projeto.</p>
+                <p className="text-xs mt-1 mb-4">Importe propostas de empreiteiros para comparar orçamentos.</p>
+                <Button variant="outline" size="sm" className="gap-1.5" onClick={() => {
+                  sessionStorage.setItem('newOrcProjetoId', projeto.id);
+                  navigate('/orcamentos');
+                }}>
+                  <Plus className="h-3.5 w-3.5" /> Criar primeira proposta
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {orcamentosProj.map(orc => (
+                  <Card key={orc.id} className="hover:shadow-sm transition-shadow cursor-pointer"
+                    onClick={() => { sessionStorage.setItem('targetOrcId', orc.id); navigate('/orcamentos'); }}>
+                    <CardContent className="py-3 px-4 flex items-center gap-3">
+                      <FolderOpen className="h-5 w-5 text-blue-600 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{orc.nome}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {orc.nPropostas} orçamento(s) · {new Date(orc.criadoEm).toLocaleDateString('pt-PT')}
+                        </p>
+                      </div>
+                      <p className="text-sm font-bold shrink-0">{formatCurrency(orc.total)}</p>
+                      <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     );
   }

@@ -4,6 +4,7 @@ import { v4, formatCurrency, cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
+import { useApp } from '@/contexts/AppContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -16,11 +17,13 @@ import {
   FileSpreadsheet, ChevronUp, ChevronDown, AlertTriangle, Check,
   Trash2, ArrowLeft, Save, ChevronRight, Plus, Minus, BadgeCheck,
   Layers, BarChart2, FolderOpen, AlertCircle, PencilLine, X, SlidersHorizontal, Star,
+  EyeOff, Eye, Link2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, Cell,
+  LineChart, Line, ReferenceLine,
 } from 'recharts';
 import { parsePDF } from '@/lib/pdfParser';
 
@@ -48,9 +51,44 @@ interface ExcelFicheiro {
   total: number; linhas: LinhaOrcamento[];
 }
 
+type TipoAlteracao = 'otimizacao' | 'por_adicionar' | 'remover';
+
+interface CenarioAlteracao {
+  id: string;
+  tipo: TipoAlteracao;
+  capitulo: string; // chapter number e.g. "1", "2"
+  descricao: string;
+  valor: number; // positive = cost increase, negative = savings/removal
+}
+
+interface CenarioCapitulo {
+  numero: string;
+  descricao: string;
+  fonte: 'media' | string; // 'media' or projetoId
+  totalBase: number;
+}
+
+interface CenarioConfig {
+  capitulos: CenarioCapitulo[];
+  projetosBase: string[];
+  alteracoes: CenarioAlteracao[];
+}
+
+interface AnaliseGuardada {
+  id: string;
+  nome: string;
+  criadoEm: string;
+  versoes: string[];
+  projIdsExcluded: string[];
+  ignoredCaps: string[];
+  m2Field: string;
+}
+
 interface Projeto {
   id: string; nome: string; criadoEm: string; ficheiros: ExcelFicheiro[];
   versao: string;
+  tipo?: 'orcamento' | 'cenario';
+  cenarioConfig?: CenarioConfig;
 }
 
 interface Orcamento {
@@ -59,6 +97,7 @@ interface Orcamento {
   m2Retalho: number; m2AreasComuns: number; m2Circulacao: number;
   m2AreasTecnicas: number; m2Terracos: number;
   projetoDefault: string | null;
+  projetoId: string | null;
 }
 
 interface FilePendente {
@@ -78,9 +117,9 @@ function loadOrcamentosLS(): Orcamento[] {
     return raw.map((o: Orcamento) => ({
       m2AcimaSolo: 0, m2AbaixoSolo: 0, numApartamentos: 0,
       m2Retalho: 0, m2AreasComuns: 0, m2Circulacao: 0, m2AreasTecnicas: 0, m2Terracos: 0,
-      projetoDefault: null,
+      projetoDefault: null, projetoId: null,
       ...o,
-      projetos: (o.projetos ?? []).map((p: Projeto) => ({ versao: '', ...p })),
+      projetos: (o.projetos ?? []).map((p: Projeto) => ({ versao: '', tipo: 'orcamento' as const, ...p })),
     }));
   } catch { return []; }
 }
@@ -96,8 +135,9 @@ type DbOrcamento = {
   m2_acima_solo: number; m2_abaixo_solo: number; num_apartamentos: number;
   m2_retalho: number; m2_areas_comuns: number; m2_circulacao: number;
   m2_areas_tecnicas: number; m2_terracos: number;
+  projeto_id: string | null;
 };
-type DbProjeto  = { id: string; orcamento_id: string; nome: string; versao: string; criado_em: string; };
+type DbProjeto  = { id: string; orcamento_id: string; nome: string; versao: string; criado_em: string; tipo: string; cenario_config: CenarioConfig | null; };
 type DbFicheiro = { id: string; projeto_id: string; nome: string; folha: string; carregado_em: string; total: number; linhas: LinhaOrcamento[]; };
 
 function orcToRow(o: Orcamento, userId: string, workspaceId: string | null): DbOrcamento {
@@ -108,10 +148,15 @@ function orcToRow(o: Orcamento, userId: string, workspaceId: string | null): DbO
     m2_retalho: o.m2Retalho, m2_areas_comuns: o.m2AreasComuns, m2_circulacao: o.m2Circulacao,
     m2_areas_tecnicas: o.m2AreasTecnicas, m2_terracos: o.m2Terracos,
     projeto_default: o.projetoDefault ?? null,
+    projeto_id: o.projetoId ?? null,
   };
 }
 function projToRow(p: Projeto, orcId: string): DbProjeto {
-  return { id: p.id, orcamento_id: orcId, nome: p.nome, versao: p.versao, criado_em: p.criadoEm };
+  return {
+    id: p.id, orcamento_id: orcId, nome: p.nome, versao: p.versao, criado_em: p.criadoEm,
+    tipo: p.tipo ?? 'orcamento',
+    cenario_config: p.cenarioConfig ?? null,
+  };
 }
 function ficToRow(f: ExcelFicheiro, projId: string): DbFicheiro {
   return { id: f.id, projeto_id: projId, nome: f.nome, folha: f.folha, carregado_em: f.carregadoEm, total: f.total, linhas: f.linhas };
@@ -120,8 +165,8 @@ function ficToRow(f: ExcelFicheiro, projId: string): DbFicheiro {
 async function loadOrcamentosDB(userId: string, workspaceId: string | null): Promise<Orcamento[]> {
   const q = supabase
     .from('orcamentos')
-    .select(`id,nome,criado_em,m2_acima_solo,m2_abaixo_solo,num_apartamentos,m2_retalho,m2_areas_comuns,m2_circulacao,m2_areas_tecnicas,m2_terracos,
-      orcamento_projetos(id,nome,versao,criado_em,
+    .select(`id,nome,criado_em,m2_acima_solo,m2_abaixo_solo,num_apartamentos,m2_retalho,m2_areas_comuns,m2_circulacao,m2_areas_tecnicas,m2_terracos,projeto_id,projeto_default,
+      orcamento_projetos(id,nome,versao,criado_em,tipo,cenario_config,
         orcamento_ficheiros(id,nome,folha,carregado_em,total,linhas)
       )`);
   if (workspaceId) q.eq('workspace_id', workspaceId);
@@ -135,8 +180,11 @@ async function loadOrcamentosDB(userId: string, workspaceId: string | null): Pro
     m2AreasComuns: row.m2_areas_comuns ?? 0, m2Circulacao: row.m2_circulacao ?? 0,
     m2AreasTecnicas: row.m2_areas_tecnicas ?? 0, m2Terracos: row.m2_terracos ?? 0,
     projetoDefault: row.projeto_default ?? null,
+    projetoId: row.projeto_id ?? null,
     projetos: (row.orcamento_projetos ?? []).map((p: any) => ({
       id: p.id, nome: p.nome, versao: p.versao ?? '', criadoEm: p.criado_em,
+      tipo: (p.tipo ?? 'orcamento') as 'orcamento' | 'cenario',
+      cenarioConfig: p.cenario_config ?? undefined,
       ficheiros: (p.orcamento_ficheiros ?? []).map((f: any) => ({
         id: f.id, nome: f.nome, folha: f.folha ?? '', carregadoEm: f.carregado_em,
         total: f.total ?? 0, linhas: (f.linhas ?? []) as LinhaOrcamento[],
@@ -157,9 +205,17 @@ async function migrateLocalToSupabase(list: Orcamento[], userId: string, workspa
 
 // ─── Pure Helpers ─────────────────────────────────────────────────────────────
 
+// Remove pontos finais e espaços: "4.2." → "4.2", "1.1.1." → "1.1.1"
+function normalizeNumero(n: string): string {
+  return (n ?? '').trim().replace(/\.+$/, '');
+}
+
 function getNivel(numero: string): number {
-  const s = (numero ?? '').trim();
+  const s = normalizeNumero(numero);
   if (!s || !/^\d/.test(s)) return 0;
+  // Only treat as hierarchy if the number is purely digits separated by dots (e.g. "1.2.3").
+  // Numbers like "7.1 + 7.2" contain extra chars and should be treated as top-level.
+  if (!/^\d+(\.\d+)*$/.test(s)) return 1;
   return s.split('.').filter(Boolean).length;
 }
 
@@ -173,7 +229,8 @@ function toNumber(val: unknown): number {
 }
 
 function parsearLinhas(rows: unknown[][], mapeamento: ColunaRole[], ficheiroId = ''): LinhaOrcamento[] {
-  const hasTotalCol = mapeamento.includes('total');
+  const hasTotalCol    = mapeamento.includes('total');
+  const hasCapituloCol = mapeamento.includes('capitulo');
   const result: LinhaOrcamento[] = [];
   for (const row of rows) {
     if (!Array.isArray(row)) continue;
@@ -183,7 +240,7 @@ function parsearLinhas(rows: unknown[][], mapeamento: ColunaRole[], ficheiroId =
     mapeamento.forEach((role, i) => {
       const val = (row as unknown[])[i] ?? null;
       switch (role) {
-        case 'capitulo':      numero        = String(val ?? '').trim(); break;
+        case 'capitulo':      numero        = normalizeNumero(String(val ?? '')); break;
         case 'descricao':     descricao     = String(val ?? '').trim(); break;
         case 'unidade':       unidade       = String(val ?? '').trim(); break;
         case 'quantidade':    quantidade    = toNumber(val); break;
@@ -192,7 +249,9 @@ function parsearLinhas(rows: unknown[][], mapeamento: ColunaRole[], ficheiroId =
         case 'observacoes':   observacoes   = String(val ?? '').trim(); break;
       }
     });
-    if (!numero && !descricao) continue;
+    // Se a coluna capitulo está mapeada, só aceita linhas com numeração válida (começa por dígito).
+    // Linhas com categoria vazia, símbolos (>, >>, -, *…) ou texto livre são descartadas.
+    if (hasCapituloCol ? !/^\d/.test(numero) : (!numero && !descricao)) continue;
     if (!hasTotalCol && quantidade && precoUnitario) total = quantidade * precoUnitario;
     result.push({
       id: v4(), numero, parentNumero: '', descricao, unidade,
@@ -214,17 +273,18 @@ function processarHierarquia(linhas: LinhaOrcamento[]): LinhaOrcamento[] {
   for (let nivel = maxNivel; nivel >= 1; nivel--) {
     res = res.map(l => {
       if (l.nivel !== nivel) return l;
-      const numStr    = l.numero.trim();
+      const numStr    = normalizeNumero(l.numero);
       const filhosNum = res.filter(f => f.nivel === nivel + 1 &&
-        f.numero.trim().split('.').slice(0, nivel).join('.') === numStr);
-      const filhosNao = res.filter(f => f.parentNumero === numStr);
+        normalizeNumero(f.numero).split('.').slice(0, nivel).join('.') === numStr);
+      const filhosNao = res.filter(f => normalizeNumero(f.parentNumero) === numStr);
       if (filhosNum.length === 0 && filhosNao.length === 0) return { ...l, isCapitulo: false };
       const somaCalculada =
         filhosNum.reduce((s, f) => s + f.total, 0) +
         filhosNao.reduce((s, f) => s + f.total, 0);
-      const total          = l.total > 0 ? l.total : somaCalculada;
-      const erroHierarquia = l.total > 0 && Math.abs(somaCalculada - l.total) > 0.05;
-      return { ...l, total, isCapitulo: true, erroHierarquia, somaCalculada };
+      // Se os filhos têm valores, usa a soma calculada (ignora total do Excel no pai).
+      // Se os filhos têm total=0 (linhas descritivas sem preço), mantém o valor do Excel no pai.
+      const total = somaCalculada > 0 ? somaCalculada : l.total;
+      return { ...l, total, isCapitulo: true, erroHierarquia: false, somaCalculada };
     });
   }
   return res;
@@ -233,17 +293,18 @@ function processarHierarquia(linhas: LinhaOrcamento[]): LinhaOrcamento[] {
 function isLinhaVisivel(linha: LinhaOrcamento, expandidos: Set<string>): boolean {
   if (linha.nivel >= 1) {
     if (linha.nivel === 1) return true;
-    const partes = linha.numero.trim().split('.');
+    const partes = normalizeNumero(linha.numero).split('.');
     for (let i = 1; i < linha.nivel; i++) {
       if (!expandidos.has(partes.slice(0, i).join('.'))) return false;
     }
     return true;
   }
-  if (!linha.parentNumero) return true;
-  if (!expandidos.has(linha.parentNumero)) return false;
-  const parentNivel = getNivel(linha.parentNumero);
+  const pn = normalizeNumero(linha.parentNumero);
+  if (!pn) return true;
+  if (!expandidos.has(pn)) return false;
+  const parentNivel = getNivel(pn);
   if (parentNivel > 1) {
-    const partes = linha.parentNumero.trim().split('.');
+    const partes = pn.split('.');
     for (let i = 1; i < parentNivel; i++) {
       if (!expandidos.has(partes.slice(0, i).join('.'))) return false;
     }
@@ -251,8 +312,21 @@ function isLinhaVisivel(linha: LinhaOrcamento, expandidos: Set<string>): boolean
   return true;
 }
 
+function calcLinhasTotal(linhas: LinhaOrcamento[]): number {
+  const processed = processarHierarquia(linhas.map(l => ({ ...l, nivel: getNivel(l.numero) })));
+  return processed.filter(l => l.nivel === 1 && l.numero).reduce((s, l) => s + l.total, 0);
+}
+function getCenarioCapituloTotal(cap: CenarioCapitulo, alteracoes: CenarioAlteracao[]): number {
+  return cap.totalBase + alteracoes.filter(a => a.capitulo === cap.numero).reduce((s, a) => s + a.valor, 0);
+}
 function getProjetoTotal(p: Projeto): number {
-  return p.ficheiros.reduce((s, f) => s + f.total, 0);
+  if (p.tipo === 'cenario' && p.cenarioConfig) {
+    const alt = p.cenarioConfig.alteracoes ?? [];
+    return p.cenarioConfig.capitulos.reduce((s, cap) => s + getCenarioCapituloTotal(cap, alt), 0);
+  }
+  const allLinhas = p.ficheiros.flatMap(f => f.linhas);
+  if (allLinhas.length === 0) return p.ficheiros.reduce((s, f) => s + f.total, 0);
+  return calcLinhasTotal(allLinhas);
 }
 function getOrcamentoTotal(o: Orcamento): number {
   return o.projetos.reduce((s, p) => s + getProjetoTotal(p), 0);
@@ -260,8 +334,10 @@ function getOrcamentoTotal(o: Orcamento): number {
 function getCapitulosNivel1(p: Projeto): string[] {
   const caps = new Set<string>();
   for (const f of p.ficheiros)
-    for (const l of f.linhas)
-      if (l.nivel === 1 && l.numero) caps.add(l.numero.trim());
+    for (const l of f.linhas) {
+      const num = normalizeNumero(l.numero);
+      if (getNivel(num) === 1 && num) caps.add(num);
+    }
   return Array.from(caps).sort((a, b) => parseFloat(a) - parseFloat(b));
 }
 function detectarGaps(caps: string[]): string[] {
@@ -349,10 +425,19 @@ const versaoCor = (v: string) => VERSAO_CORES[v] ?? 'bg-slate-100 text-slate-600
 
 interface CapTotal { numero: string; descricao: string; total: number; }
 function getCapituloTotais(proj: Projeto): CapTotal[] {
+  if (proj.tipo === 'cenario' && proj.cenarioConfig) {
+    const alt = proj.cenarioConfig.alteracoes ?? [];
+    return proj.cenarioConfig.capitulos
+      .map(cap => ({ numero: cap.numero, descricao: cap.descricao, total: getCenarioCapituloTotal(cap, alt) }))
+      .sort((a, b) => parseFloat(a.numero) - parseFloat(b.numero));
+  }
   const map = new Map<string, { descricao: string; total: number }>();
   for (const f of proj.ficheiros) {
-    for (const l of f.linhas) {
-      if (l.nivel === 1) {
+    const processed = processarHierarquia(
+      f.linhas.map(l => ({ ...l, numero: normalizeNumero(l.numero), nivel: getNivel(l.numero) }))
+    );
+    for (const l of processed) {
+      if (getNivel(l.numero) === 1 && l.numero) {
         const ex = map.get(l.numero);
         if (ex) ex.total += l.total;
         else map.set(l.numero, { descricao: l.descricao, total: l.total });
@@ -379,7 +464,10 @@ function getSubLinhasCapitulo(proj: Projeto, capNumero: string): LinhaOrcamento[
   const capNum = parseFloat(capNumero);
   const linhas = proj.ficheiros.flatMap(f => f.linhas);
   return linhas
-    .filter(l => l.nivel >= 2 && l.numero && parseFloat(l.numero.split('.')[0]) === capNum)
+    .filter(l => {
+      const num = normalizeNumero(l.numero);
+      return getNivel(num) >= 2 && num && parseFloat(num.split('.')[0]) === capNum;
+    })
     .sort((a, b) => sortNumericamente(a.numero, b.numero));
 }
 
@@ -420,12 +508,39 @@ function LinhaTreeTable({
   linhas, totalBase, ficheiroIndex, editavel = false,
   onEscolherValor, externalDismissed, onDismiss,
 }: LinhaTreeTableProps) {
-  const [expandidos, setExpandidos]         = useState<Set<string>>(new Set());
+  // Todos os prefixos ancestrais necessários para visibilidade total
+  const todosAncestores = useMemo(() => {
+    const s = new Set<string>();
+    for (const l of linhas) {
+      if (!l.numero || l.nivel < 1) continue;
+      const partes = l.numero.trim().split('.');
+      for (let i = 1; i <= partes.length; i++) s.add(partes.slice(0, i).join('.'));
+    }
+    return s;
+  }, [linhas]);
+
+  const [expandidos, setExpandidos] = useState<Set<string>>(() =>
+    editavel ? new Set((() => {
+      const s = new Set<string>();
+      for (const l of linhas) {
+        if (!l.numero || l.nivel < 1) continue;
+        const partes = l.numero.trim().split('.');
+        for (let i = 1; i <= partes.length; i++) s.add(partes.slice(0, i).join('.'));
+      }
+      return s;
+    })()) : new Set()
+  );
   const [localDismissed, setLocalDismissed] = useState<Set<string>>(new Set());
   const dismissed = externalDismissed ?? localDismissed;
 
-  const toggleExpandido = (n: string) =>
-    setExpandidos(prev => { const s = new Set(prev); s.has(n) ? s.delete(n) : s.add(n); return s; });
+  const tudo = todosAncestores.size > 0 && [...todosAncestores].every(n => expandidos.has(n));
+  const expandirTudo = () => setExpandidos(new Set(todosAncestores));
+  const colapsarTudo = () => setExpandidos(new Set());
+
+  const toggleExpandido = (n: string) => {
+    const key = normalizeNumero(n);
+    setExpandidos(prev => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s; });
+  };
 
   const dismiss = (id: string) => {
     onDismiss?.(id);
@@ -437,6 +552,17 @@ function LinhaTreeTable({
   };
 
   const temObs  = linhas.some(l => l.observacoes);
+  const numerosComFilhos = useMemo(() => {
+    const s = new Set<string>();
+    for (const l of linhas) {
+      if (l.nivel >= 2) {
+        const partes = normalizeNumero(l.numero).split('.');
+        for (let i = 1; i < l.nivel; i++) s.add(partes.slice(0, i).join('.'));
+      }
+      if (l.parentNumero) s.add(normalizeNumero(l.parentNumero));
+    }
+    return s;
+  }, [linhas]);
   const visiveis = useMemo(
     () => linhas.filter(l => isLinhaVisivel(l, expandidos)),
     [linhas, expandidos],
@@ -444,6 +570,15 @@ function LinhaTreeTable({
 
   return (
     <div className="overflow-auto">
+      {todosAncestores.size > 0 && (
+        <div className="flex justify-end px-3 py-1.5 border-b bg-muted/20">
+          <button onClick={tudo ? colapsarTudo : expandirTudo}
+            className="text-[11px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1">
+            {tudo ? <Minus className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
+            {tudo ? 'Colapsar tudo' : 'Expandir tudo'}
+          </button>
+        </div>
+      )}
       <table className="w-full text-xs border-collapse table-fixed">
         <colgroup>
           <col className="w-8" />
@@ -479,15 +614,20 @@ function LinhaTreeTable({
             const ficIdx   = ficheiroIndex && linha.ficheiroId ? ficheiroIndex[linha.ficheiroId] : undefined;
             const dotColor = ficIdx !== undefined ? FIC_COLORS[ficIdx % FIC_COLORS.length] : null;
 
+            const eCapitulo = linha.isCapitulo || numerosComFilhos.has(linha.numero);
+            const eNivel1 = linha.nivel === 1;
+            const eNivel2Cap = linha.nivel === 2 && eCapitulo;
             return (
               <tr key={linha.id} className={cn(
                 'border-b',
-                linha.isCapitulo ? 'bg-slate-50 font-semibold' : 'hover:bg-muted/10',
+                eNivel1 ? 'bg-slate-200 font-bold border-t-2 border-t-slate-400 text-slate-900'
+                  : eNivel2Cap ? 'bg-slate-50 font-semibold'
+                  : eCapitulo ? 'font-semibold hover:bg-muted/20'
+                  : 'hover:bg-muted/10',
                 temErro ? 'bg-amber-50' : '',
-                linha.nivel === 1 ? 'border-t-2 border-t-slate-200' : '',
               )}>
                 <td className="px-1 py-1 text-center">
-                  {linha.isCapitulo && (
+                  {eCapitulo && (
                     <button onClick={() => toggleExpandido(linha.numero)}
                       className={cn(
                         'h-5 w-5 rounded flex items-center justify-center mx-auto transition-colors',
@@ -673,6 +813,8 @@ type View = 'lista' | 'orcamento' | 'projeto' | 'comparar' | 'comparar-orc' | 'b
 export default function OrcamentosPage() {
   const { user }                    = useAuth();
   const { activeWorkspace }         = useWorkspace();
+  const { projetos: _allProjetos }  = useApp();
+  const topProjetos = _allProjetos.filter(p => p.tipo === 'projeto');
   const workspaceId                 = activeWorkspace?.id ?? null;
 
   // Navigation
@@ -684,25 +826,37 @@ export default function OrcamentosPage() {
   const [orcamentos, setOrcamentos]   = useState<Orcamento[]>([]);
   const [loadingData, setLoadingData] = useState(true);
 
-  // ── Load from Supabase on mount (+ migrate localStorage if DB is empty) ───
+  // ── Load from Supabase on mount (+ always upsert localStorage → Supabase) ─
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
     (async () => {
       setLoadingData(true);
-      const dbData = await loadOrcamentosDB(user.id, workspaceId);
+      const [dbData, local] = await Promise.all([
+        loadOrcamentosDB(user.id, workspaceId),
+        Promise.resolve(loadOrcamentosLS()),
+      ]);
       if (cancelled) return;
 
       if (dbData.length > 0) {
-        setOrcamentos(dbData);
-        saveOrcamentosLS(dbData); // keep localStorage in sync
-      } else {
-        // First time: migrate whatever exists in localStorage
-        const local = loadOrcamentosLS();
+        // Merge: DB is source of truth, but push any local-only records to DB
+        const dbIds = new Set(dbData.map(o => o.id));
+        const localOnly = local.filter(o => !dbIds.has(o.id));
+        if (localOnly.length > 0) {
+          await migrateLocalToSupabase(localOnly, user.id, workspaceId);
+        }
+        // Always upsert ALL local records so any locally-saved changes reach Supabase
         if (local.length > 0) {
-          setOrcamentos(local);
           await migrateLocalToSupabase(local, user.id, workspaceId);
         }
+        // Use DB as final state (includes what we just pushed)
+        const merged = [...dbData, ...localOnly];
+        setOrcamentos(merged);
+        saveOrcamentosLS(merged);
+      } else if (local.length > 0) {
+        // First time / DB empty: push everything from localStorage
+        setOrcamentos(local);
+        await migrateLocalToSupabase(local, user.id, workspaceId);
       }
       setLoadingData(false);
     })();
@@ -745,23 +899,101 @@ export default function OrcamentosPage() {
   }, [syncOrc, deleteOrcDB]);
 
   // Dialogs
-  const [showNovoOrc, setShowNovoOrc]   = useState(false);
-  const [novoOrcNome, setNovoOrcNome]   = useState('');
-  const [showNovoProj, setShowNovoProj] = useState(false);
-  const [novoProjNome, setNovoProjNome] = useState('');
+  const [showNovoOrc, setShowNovoOrc]         = useState(false);
+  const [novoOrcNome, setNovoOrcNome]         = useState('');
+  const [novoOrcProjetoId, setNovoOrcProjetoId] = useState<string>('');
+  const [showNovoProj, setShowNovoProj]       = useState(false);
+  const [novoProjNome, setNovoProjNome]       = useState('');
+
+  // Handle navigation from ProjetoDetalhe (open a specific orcamento or open create dialog pre-linked)
+  useEffect(() => {
+    if (loadingData) return;
+    const targetId = sessionStorage.getItem('targetOrcId');
+    if (targetId) {
+      sessionStorage.removeItem('targetOrcId');
+      const found = orcamentos.find(o => o.id === targetId);
+      if (found) { setSelectedOrcId(targetId); setView('orcamento'); return; }
+    }
+    const newForProjId = sessionStorage.getItem('newOrcProjetoId');
+    if (newForProjId) {
+      sessionStorage.removeItem('newOrcProjetoId');
+      setNovoOrcProjetoId(newForProjId);
+      setShowNovoOrc(true);
+    }
+  }, [loadingData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Projeto sub-view
   const [projetoModo, setProjetoModo] = useState<'ficheiros' | 'consolidado'>('consolidado');
 
   // Comparison controls
   const [expandedCaps, setExpandedCaps]         = useState<Set<string>>(new Set());
+  const [ignoredCaps, setIgnoredCaps]           = useState<Set<string>>(new Set());
   const [compMode, setCompMode]                 = useState<'single' | 'multi'>('single');
   const [compVersoes, setCompVersoes]           = useState<Set<string>>(new Set());
   const [compOrcExcluded, setCompOrcExcluded]   = useState<Set<string>>(new Set());
   const [compM2Field, setCompM2Field]           = useState<string>('');
 
+  // Saved analyses
+  const getAnaliseKey = (orcId: string) => `analises_${orcId}`;
+  const loadAnalises = (orcId: string): AnaliseGuardada[] => {
+    try { return JSON.parse(localStorage.getItem(getAnaliseKey(orcId)) ?? '[]'); } catch { return []; }
+  };
+  const [analises, setAnalises]                 = useState<AnaliseGuardada[]>([]);
+  const [showGravarAnalise, setShowGravarAnalise] = useState(false);
+  const [nomeAnalise, setNomeAnalise]           = useState('');
+
+  // Scenario creation
+  const [showCriarCenario, setShowCriarCenario] = useState(false);
+  const [nomeCenario, setNomeCenario]           = useState('');
+  const [versaoCenario, setVersaoCenario]       = useState('');
+  const [cenarioCaps, setCenarioCaps]           = useState<CenarioCapitulo[]>([]);
+
+  // Cenario editor state (when viewing a cenario)
+  const [cenarioEditCaps, setCenarioEditCaps]         = useState<CenarioCapitulo[]>([]);
+  const [cenarioEditAlteracoes, setCenarioEditAlteracoes] = useState<CenarioAlteracao[]>([]);
+
   const toggleCapExpand = (cap: string) =>
     setExpandedCaps(prev => { const s = new Set(prev); s.has(cap) ? s.delete(cap) : s.add(cap); return s; });
+  const toggleIgnoredCap = (cap: string) =>
+    setIgnoredCaps(prev => { const s = new Set(prev); s.has(cap) ? s.delete(cap) : s.add(cap); return s; });
+
+  const buildCenarioCaps = (projs: Projeto[]): CenarioCapitulo[] => {
+    const realProjs = projs.filter(p => p.tipo !== 'cenario');
+    const allCapsSet = new Set<string>();
+    realProjs.forEach(p => getCapituloTotais(p).forEach(c => allCapsSet.add(c.numero)));
+    return Array.from(allCapsSet).sort((a, b) => parseFloat(a) - parseFloat(b)).map(num => {
+      const capDescricao = realProjs.map(p => getCapituloTotais(p).find(c => c.numero === num)?.descricao ?? '').find(d => d) ?? '';
+      const vals = realProjs.map(p => getCapituloTotais(p).find(c => c.numero === num)?.total ?? 0).filter(v => v > 0);
+      const media = vals.length > 0 ? vals.reduce((s, v) => s + v, 0) / vals.length : 0;
+      return { numero: num, descricao: capDescricao, fonte: 'media', totalBase: Math.round(media) };
+    });
+  };
+
+  const gravarAnalise = (orcId: string, nome: string) => {
+    const analise: AnaliseGuardada = {
+      id: v4(), nome, criadoEm: new Date().toISOString(),
+      versoes: Array.from(compVersoes),
+      projIdsExcluded: Array.from(compOrcExcluded),
+      ignoredCaps: Array.from(ignoredCaps),
+      m2Field: compM2Field,
+    };
+    const updated = [...loadAnalises(orcId), analise];
+    localStorage.setItem(getAnaliseKey(orcId), JSON.stringify(updated));
+    setAnalises(updated);
+  };
+
+  const carregarAnalise = (a: AnaliseGuardada) => {
+    setCompVersoes(new Set(a.versoes));
+    setCompOrcExcluded(new Set(a.projIdsExcluded));
+    setIgnoredCaps(new Set(a.ignoredCaps));
+    setCompM2Field(a.m2Field);
+  };
+
+  const eliminarAnalise = (orcId: string, id: string) => {
+    const updated = loadAnalises(orcId).filter(a => a.id !== id);
+    localStorage.setItem(getAnaliseKey(orcId), JSON.stringify(updated));
+    setAnalises(updated);
+  };
 
   // Upload state
   const [nomeFicheiro, setNomeFicheiro]         = useState('');
@@ -809,9 +1041,10 @@ export default function OrcamentosPage() {
       id: v4(), nome, criadoEm: new Date().toISOString(), projetos: [],
       m2AcimaSolo: 0, m2AbaixoSolo: 0, numApartamentos: 0,
       m2Retalho: 0, m2AreasComuns: 0, m2Circulacao: 0, m2AreasTecnicas: 0, m2Terracos: 0,
+      projetoDefault: null, projetoId: novoOrcProjetoId || null,
     };
     updateOrcamentos(prev => [novo, ...prev]);
-    setNovoOrcNome(''); setShowNovoOrc(false);
+    setNovoOrcNome(''); setNovoOrcProjetoId(''); setShowNovoOrc(false);
     toast.success('Projeto criado!');
   };
 
@@ -898,18 +1131,26 @@ export default function OrcamentosPage() {
   const irParaProjeto   = (projId: string) => {
     setSelectedProjId(projId);
     setProjetoModo('consolidado');
+    const proj = selectedOrc?.projetos.find(p => p.id === projId);
+    if (proj?.tipo === 'cenario' && proj.cenarioConfig) {
+      setCenarioEditCaps(JSON.parse(JSON.stringify(proj.cenarioConfig.capitulos)));
+      setCenarioEditAlteracoes(JSON.parse(JSON.stringify(proj.cenarioConfig.alteracoes ?? [])));
+    }
     setView('projeto');
   };
   const voltarLista     = () => { setSelectedOrcId(null); setSelectedProjId(null); setView('lista'); };
   const voltarOrcamento = () => { setSelectedProjId(null); setView('orcamento'); };
   const voltarProjeto   = () => { setView('projeto'); resetUpload(); };
 
-  const irParaComparacaoOrc = () => {
+  const irParaComparacaoOrc = (orcId?: string) => {
+    const id = orcId ?? selectedOrcId ?? '';
     setCompMode('single');
     setCompVersoes(new Set());
     setCompOrcExcluded(new Set());
     setCompM2Field('');
     setExpandedCaps(new Set());
+    setIgnoredCaps(new Set());
+    setAnalises(loadAnalises(id));
     setView('comparar-orc');
   };
 
@@ -1162,7 +1403,7 @@ export default function OrcamentosPage() {
             <ArrowLeft className="h-4 w-4" /> Cancelar
           </Button>
           <Breadcrumb parts={[
-            { label: 'Orçamentos', onClick: voltarLista },
+            { label: 'Propostas', onClick: voltarLista },
             { label: selectedOrc?.nome ?? '', onClick: voltarOrcamento },
             { label: selectedProj?.nome ?? '', onClick: cancelarBatch },
             { label: 'Importação em lote' },
@@ -1274,7 +1515,7 @@ export default function OrcamentosPage() {
             <ArrowLeft className="h-4 w-4" /> Voltar
           </Button>
           <Breadcrumb parts={[
-            { label: 'Orçamentos', onClick: voltarLista },
+            { label: 'Propostas', onClick: voltarLista },
             { label: selectedOrc?.nome ?? '', onClick: voltarOrcamento },
             { label: selectedProj?.nome ?? '', onClick: isBatchMode ? cancelarBatch : voltarProjeto },
             ...(isBatchMode ? [{ label: 'Lote', onClick: () => { setBatchAtivo(null); resetUpload(); setView('batch'); } }] : []),
@@ -1329,7 +1570,7 @@ export default function OrcamentosPage() {
             <ArrowLeft className="h-4 w-4" /> Voltar
           </Button>
           <Breadcrumb parts={[
-            { label: 'Orçamentos', onClick: voltarLista },
+            { label: 'Propostas', onClick: voltarLista },
             { label: selectedOrc?.nome ?? '', onClick: voltarOrcamento },
             { label: selectedProj?.nome ?? '', onClick: isBatchMode ? cancelarBatch : voltarProjeto },
             { label: 'Mapear Colunas' },
@@ -1430,7 +1671,7 @@ export default function OrcamentosPage() {
             <ArrowLeft className="h-4 w-4" /> Voltar ao mapeamento
           </Button>
           <Breadcrumb parts={[
-            { label: 'Orçamentos', onClick: voltarLista },
+            { label: 'Propostas', onClick: voltarLista },
             { label: selectedOrc?.nome ?? '', onClick: voltarOrcamento },
             { label: selectedProj?.nome ?? '', onClick: isBatchMode ? cancelarBatch : voltarProjeto },
             ...(isBatchMode ? [{ label: 'Lote', onClick: () => { setBatchAtivo(null); resetUpload(); setView('batch'); } }] : []),
@@ -1490,7 +1731,9 @@ export default function OrcamentosPage() {
     const projsPool  = compVersoes.size === 0
       ? selectedOrc.projetos
       : selectedOrc.projetos.filter(p => compVersoes.has(p.versao));
-    const projsSel   = projsPool.filter(p => !compOrcExcluded.has(p.id));
+    const projsSel   = projsPool
+      .filter(p => !compOrcExcluded.has(p.id))
+      .sort((a, b) => sortVersao(a.versao || '', b.versao || '') || a.criadoEm.localeCompare(b.criadoEm));
     const totais     = projsSel.map(p => ({ name: p.nome, total: getProjetoTotal(p), proj: p }));
     const totaisVals = totais.map(t => t.total);
     const maxTotal   = Math.max(...totaisVals, 1);
@@ -1521,13 +1764,26 @@ export default function OrcamentosPage() {
     // Version analysis
     const versoesSel        = new Set(projsSel.map(p => p.versao).filter(Boolean));
     const mesmaVersao       = versoesSel.size <= 1;
+    const isEvolucao        = !mesmaVersao && versoesSel.size > 1; // comparing versions of same budget
     const stats             = getEstatisticas(totaisVals);
     const progressao        = mesmaVersao ? [] : getProgressaoVersoes(projsSel);
     const progressaoChartData = progressao.map((p, i, arr) => {
       const prev  = arr[i - 1];
       const delta = prev ? ((p.media - prev.media) / prev.media) * 100 : null;
-      return { versao: p.versao, Média: Math.round(p.media), delta };
+      return { versao: p.versao, Total: Math.round(p.media), delta };
     });
+
+    // Evolution-specific data
+    const versaoDeltaRows = progressao.map((p, i) => {
+      const prev     = progressao[i - 1];
+      const deltaAbs = prev != null ? p.media - prev.media : null;
+      const deltaPct = prev != null && prev.media > 0 ? ((p.media - prev.media) / prev.media) * 100 : null;
+      return { versao: p.versao, total: p.media, n: p.n, deltaAbs, deltaPct };
+    });
+    const primeiraVersao  = progressao[0];
+    const ultimaVersao    = progressao[progressao.length - 1];
+    const evolDeltaAbs    = primeiraVersao && ultimaVersao ? ultimaVersao.media - primeiraVersao.media : 0;
+    const evolDeltaPct    = primeiraVersao?.media > 0 ? (evolDeltaAbs / primeiraVersao.media) * 100 : 0;
 
     // Chapter data
     const allCapsSet = new Set<string>();
@@ -1564,10 +1820,46 @@ export default function OrcamentosPage() {
             <ArrowLeft className="h-4 w-4" /> Voltar
           </Button>
           <Breadcrumb parts={[
-            { label: 'Orçamentos', onClick: voltarLista },
+            { label: 'Propostas', onClick: voltarLista },
             { label: selectedOrc.nome, onClick: voltarOrcamento },
             { label: 'Análise' },
           ]} />
+          <div className="ml-auto flex items-center gap-2">
+            {analises.length > 0 && (
+              <Select onValueChange={id => { const a = analises.find(x => x.id === id); if (a) carregarAnalise(a); }}>
+                <SelectTrigger className="h-7 text-xs w-40 border-dashed">
+                  <SelectValue placeholder="Carregar análise…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {analises.map(a => (
+                    <SelectItem key={a.id} value={a.id} className="text-xs">
+                      <span className="flex items-center justify-between gap-4 w-full">
+                        <span>{a.nome}</span>
+                        <button className="text-muted-foreground hover:text-red-600 ml-2"
+                          onClick={e => { e.stopPropagation(); eliminarAnalise(selectedOrc.id, a.id); }}>
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5"
+              onClick={() => { setNomeAnalise(''); setShowGravarAnalise(true); }}>
+              <Save className="h-3 w-3" /> Guardar análise
+            </Button>
+            {projsSel.filter(p => p.tipo !== 'cenario').length >= 1 && (
+              <Button size="sm" className="h-7 text-xs gap-1.5"
+                onClick={() => {
+                  setCenarioCaps(buildCenarioCaps(projsSel));
+                  setNomeCenario('Cenário'); setVersaoCenario('');
+                  setShowCriarCenario(true);
+                }}>
+                <Plus className="h-3 w-3" /> Criar Cenário
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* ── Painel de controlos ── */}
@@ -1805,56 +2097,116 @@ export default function OrcamentosPage() {
           </Card>
         )}
 
-        {/* ── Progressão entre versões ── */}
-        {projsSel.length > 0 && !mesmaVersao && progressao.length >= 2 && (
+        {/* ── Evolução entre versões ── */}
+        {temProjsSel && isEvolucao && progressao.length >= 2 && (
           <Card className="mb-6">
             <CardHeader className="pb-2 pt-4 px-5">
-              <CardTitle className="text-sm font-semibold">Evolução por Versão</CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold">Evolução por Versão</CardTitle>
+                <div className={cn('flex items-center gap-1.5 text-sm font-bold px-3 py-1 rounded-full',
+                  evolDeltaAbs > 0 ? 'bg-red-50 text-red-600' : evolDeltaAbs < 0 ? 'bg-green-50 text-green-600' : 'bg-muted text-muted-foreground')}>
+                  {evolDeltaAbs > 0 ? '▲' : evolDeltaAbs < 0 ? '▼' : '='}{' '}
+                  {formatCurrency(Math.abs(evolDeltaAbs))}
+                  <span className="font-normal text-xs opacity-75 ml-1">
+                    ({evolDeltaPct > 0 ? '+' : ''}{evolDeltaPct.toFixed(1)}% total)
+                  </span>
+                </div>
+              </div>
             </CardHeader>
             <CardContent className="pb-4 px-5">
-              {/* Version delta badges */}
-              <div className="flex items-center gap-2 flex-wrap mb-4">
-                {progressao.map((p, i) => {
-                  const prev  = progressao[i - 1];
-                  const delta = prev ? ((p.media - prev.media) / prev.media) * 100 : null;
-                  return (
-                    <div key={p.versao} className="flex items-center gap-1.5">
-                      {i > 0 && (
-                        <span className={cn('text-sm font-bold', delta! > 0 ? 'text-red-500' : 'text-green-600')}>
-                          {delta! > 0 ? '▲' : '▼'} {Math.abs(delta!).toFixed(1)}%
-                        </span>
-                      )}
-                      <div className={cn('px-2.5 py-1 rounded-full text-xs font-bold border', versaoCor(p.versao))}>
-                        {p.versao}
-                        <span className="ml-1.5 font-normal opacity-80">{formatCurrency(Math.round(p.media))}</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
               {/* Line chart */}
-              <ResponsiveContainer width="100%" height={180}>
-                <BarChart data={progressaoChartData} margin={{ left: 10, right: 10 }}>
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart data={progressaoChartData} margin={{ left: 10, right: 30, top: 10 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
                   <XAxis dataKey="versao" tick={{ fontSize: 11 }} />
-                  <YAxis tickFormatter={(v) => `${(v / 1000).toFixed(0)}k€`} tick={{ fontSize: 11 }} width={50} />
-                  <Tooltip formatter={(v: number) => fmtTooltip(v)} labelFormatter={(v) => `Versão ${v}`} />
-                  <Bar dataKey="Média" radius={[4, 4, 0, 0]}>
-                    {progressaoChartData.map((entry, i) => {
-                      const prev = progressaoChartData[i - 1];
-                      const up   = prev && entry.Média > prev.Média;
-                      const dn   = prev && entry.Média < prev.Média;
-                      return <Cell key={i} fill={up ? '#ef4444' : dn ? '#22c55e' : '#3b82f6'} />;
-                    })}
-                  </Bar>
-                </BarChart>
+                  <YAxis tickFormatter={(v) => `${(v / 1000).toFixed(0)}k€`} tick={{ fontSize: 11 }} width={52} />
+                  <Tooltip
+                    formatter={(v: number) => [fmtTooltip(v), 'Total']}
+                    labelFormatter={(v) => `Versão ${v}`}
+                  />
+                  <ReferenceLine y={progressaoChartData[0]?.Total} stroke="#94a3b8" strokeDasharray="4 4" strokeWidth={1} />
+                  <Line
+                    type="monotone" dataKey="Total" stroke="#3b82f6" strokeWidth={2.5}
+                    dot={(props: any) => {
+                      const { cx, cy, index, payload } = props;
+                      const prev = progressaoChartData[index - 1];
+                      const fill = !prev ? '#3b82f6' : payload.Total > prev.Total ? '#ef4444' : '#22c55e';
+                      return <circle key={index} cx={cx} cy={cy} r={5} fill={fill} stroke="#fff" strokeWidth={2} />;
+                    }}
+                    label={(props: any) => {
+                      const { x, y, index, value } = props;
+                      const prev = progressaoChartData[index - 1];
+                      if (!prev) return null;
+                      const pct = ((value - prev.Total) / prev.Total * 100);
+                      const color = pct > 0 ? '#ef4444' : '#22c55e';
+                      return (
+                        <text x={x} y={y - 10} textAnchor="middle" fontSize={10} fill={color} fontWeight={600}>
+                          {pct > 0 ? '+' : ''}{pct.toFixed(1)}%
+                        </text>
+                      );
+                    }}
+                  />
+                </LineChart>
               </ResponsiveContainer>
+
+              {/* Version-to-version delta table */}
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b text-muted-foreground">
+                      <th className="px-3 py-2 text-left font-medium">Versão</th>
+                      <th className="px-3 py-2 text-right font-medium">Total</th>
+                      <th className="px-3 py-2 text-right font-medium">Δ vs. anterior</th>
+                      <th className="px-3 py-2 text-right font-medium">Δ vs. {primeiraVersao?.versao}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {versaoDeltaRows.map((row, i) => {
+                      const deltaVsFirst = i > 0 ? row.total - primeiraVersao!.media : null;
+                      const pctVsFirst   = i > 0 && primeiraVersao!.media > 0
+                        ? (deltaVsFirst! / primeiraVersao!.media) * 100 : null;
+                      const isLast = i === versaoDeltaRows.length - 1;
+                      return (
+                        <tr key={row.versao} className={cn('border-b', isLast && 'font-semibold bg-muted/20')}>
+                          <td className="px-3 py-2">
+                            <span className={cn('px-2 py-0.5 rounded-full text-xs font-bold border', versaoCor(row.versao))}>
+                              {row.versao}
+                            </span>
+                            {row.n > 1 && <span className="ml-1.5 text-muted-foreground text-[10px]">média de {row.n}</span>}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums font-semibold">{formatCurrency(Math.round(row.total))}</td>
+                          <td className="px-3 py-2 text-right tabular-nums">
+                            {row.deltaAbs != null ? (
+                              <span className={cn('font-semibold', row.deltaAbs > 0 ? 'text-red-600' : row.deltaAbs < 0 ? 'text-green-600' : 'text-muted-foreground')}>
+                                {row.deltaAbs > 0 ? '+' : ''}{formatCurrency(row.deltaAbs)}
+                                <span className="font-normal text-[10px] ml-1 opacity-75">
+                                  ({row.deltaPct! > 0 ? '+' : ''}{row.deltaPct!.toFixed(1)}%)
+                                </span>
+                              </span>
+                            ) : <span className="text-muted-foreground">—</span>}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums">
+                            {deltaVsFirst != null ? (
+                              <span className={cn('font-semibold', deltaVsFirst > 0 ? 'text-red-600' : deltaVsFirst < 0 ? 'text-green-600' : 'text-muted-foreground')}>
+                                {deltaVsFirst > 0 ? '+' : ''}{formatCurrency(deltaVsFirst)}
+                                <span className="font-normal text-[10px] ml-1 opacity-75">
+                                  ({pctVsFirst! > 0 ? '+' : ''}{pctVsFirst!.toFixed(1)}%)
+                                </span>
+                              </span>
+                            ) : <span className="text-muted-foreground">—</span>}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </CardContent>
           </Card>
         )}
 
-        {/* Summary cards */}
-        {temProjsSel && <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        {/* Summary cards — only show in competitor mode; in evolution mode the line chart is the summary */}
+        {temProjsSel && !isEvolucao && <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
           {totais.map((t, i) => (
             <Card key={t.proj.id} className="overflow-hidden">
               <div className="h-1" style={{ background: ORC_PALETTE[i % ORC_PALETTE.length] }} />
@@ -1881,8 +2233,8 @@ export default function OrcamentosPage() {
           </Card>
         </div>}
 
-        {/* Bar chart: Totais */}
-        {temProjsSel && <Card className="mb-6">
+        {/* Bar chart: Totais — only in competitor mode */}
+        {temProjsSel && !isEvolucao && <Card className="mb-6">
           <CardHeader className="pb-2 pt-4 px-5">
             <CardTitle className="text-sm font-semibold">Total por Orçamento</CardTitle>
           </CardHeader>
@@ -1903,16 +2255,35 @@ export default function OrcamentosPage() {
           </CardContent>
         </Card>}
 
-        {/* Chapter comparison table — expandable + mean + diff */}
-        {temProjsSel && allCaps.length > 0 && (
+        {/* Chapter comparison table — expandable + mean/diff */}
+        {temProjsSel && allCaps.length > 0 && (() => {
+          // isDiff: show difference column for exactly 2 competitors (not in evolution mode)
+          const isDiff       = !isEvolucao && projsSel.length === 2;
+          const activeCaps   = allCaps.filter(cap => !ignoredCaps.has(cap));
+          const adjTotal     = (p: Projeto) => activeCaps.reduce((sum, cap) => {
+            const found = getCapituloTotais(p).find(c => c.numero === cap);
+            return sum + (found?.total ?? 0);
+          }, 0);
+          const adjTotais    = projsSel.map(p => adjTotal(p));
+          const adjStats     = getEstatisticas(adjTotais);
+          return (
           <Card className="mb-6">
             <CardHeader className="pb-2 pt-4 px-5">
-              <CardTitle className="text-sm font-semibold">Comparação por Capítulo</CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold">Comparação por Capítulo</CardTitle>
+                {ignoredCaps.size > 0 && (
+                  <button onClick={() => setIgnoredCaps(new Set())}
+                    className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors">
+                    <Eye className="h-3 w-3" /> Mostrar todos ({ignoredCaps.size} ocultos)
+                  </button>
+                )}
+              </div>
             </CardHeader>
             <div className="overflow-auto">
               <table className="w-full text-xs border-collapse">
                 <thead>
                   <tr className="bg-muted/50 border-b text-muted-foreground">
+                    <th className="w-6 px-1" />
                     <th className="w-8 px-1" />
                     <th className="px-3 py-2 text-left font-medium w-14">Cap.</th>
                     <th className="px-3 py-2 text-left font-medium">Descrição</th>
@@ -1923,12 +2294,20 @@ export default function OrcamentosPage() {
                         {p.versao && <span className={cn('ml-1 px-1 rounded border text-[9px]', versaoCor(p.versao))}>{p.versao}</span>}
                       </th>
                     ))}
-                    <th className="px-3 py-2 text-right font-medium text-blue-600 whitespace-nowrap">Média</th>
+                    {isEvolucao
+                      ? <th className="px-3 py-2 text-right font-medium text-indigo-600 whitespace-nowrap">
+                          Δ {primeiraVersao?.versao}→{ultimaVersao?.versao}
+                        </th>
+                      : isDiff
+                        ? <th className="px-3 py-2 text-right font-medium text-purple-600 whitespace-nowrap">Diferença</th>
+                        : <th className="px-3 py-2 text-right font-medium text-blue-600 whitespace-nowrap">Média</th>
+                    }
                   </tr>
                 </thead>
                 <tbody>
                   {allCaps.map(cap => {
-                    const isExp = expandedCaps.has(cap);
+                    const isIgnored = ignoredCaps.has(cap);
+                    const isExp = !isIgnored && expandedCaps.has(cap);
                     const vals  = projsSel.map(p => {
                       const found = getCapituloTotais(p).find(c => c.numero === cap);
                       return found?.total ?? 0;
@@ -1942,11 +2321,29 @@ export default function OrcamentosPage() {
                     projsSel.forEach(p => getSubLinhasCapitulo(p, cap).forEach(l => subNumSet.add(l.numero)));
                     const subNums = Array.from(subNumSet).sort(sortNumericamente);
 
+                    const capDiff    = isDiff ? vals[1] - vals[0] : 0;
+                    const capDiffPct = isDiff && vals[0] > 0 ? (capDiff / vals[0]) * 100 : null;
+                    // Evolution: delta from first to last version for this chapter
+                    const capEvolDelta    = isEvolucao ? vals[vals.length - 1] - vals[0] : 0;
+                    const capEvolDeltaPct = isEvolucao && vals[0] > 0 ? (capEvolDelta / vals[0]) * 100 : null;
+
                     return (
                       <>
-                        <tr key={cap} className={cn('border-b', isExp ? 'bg-blue-50/40' : 'hover:bg-muted/10')}>
+                        <tr key={cap} className={cn('border-b',
+                          isIgnored ? 'opacity-40 bg-slate-50' : isExp ? 'bg-blue-50/40' : 'hover:bg-muted/10',
+                        )}>
                           <td className="px-1 py-1.5 text-center">
-                            {subNums.length > 0 && (
+                            <button onClick={() => toggleIgnoredCap(cap)}
+                              title={isIgnored ? 'Incluir na soma' : 'Ignorar capítulo'}
+                              className={cn('h-5 w-5 rounded flex items-center justify-center mx-auto transition-colors',
+                                isIgnored
+                                  ? 'bg-slate-200 text-slate-400 hover:bg-slate-300'
+                                  : 'text-muted-foreground/30 hover:bg-muted hover:text-muted-foreground')}>
+                              {isIgnored ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
+                            </button>
+                          </td>
+                          <td className="px-1 py-1.5 text-center">
+                            {!isIgnored && subNums.length > 0 && (
                               <button onClick={() => toggleCapExpand(cap)}
                                 className={cn('h-5 w-5 rounded flex items-center justify-center mx-auto transition-colors',
                                   isExp ? 'bg-blue-200 text-blue-700' : 'bg-muted text-muted-foreground hover:bg-muted/70')}>
@@ -1957,14 +2354,27 @@ export default function OrcamentosPage() {
                           <td className="px-3 py-2 font-mono font-bold">{cap}</td>
                           <td className="px-3 py-1.5 font-semibold max-w-[200px] truncate">{capDescricao[cap] ?? '—'}</td>
                           {vals.map((v, i) => {
+                            // In evolution mode: show % vs previous version in each cell
+                            const prevV  = isEvolucao && i > 0 ? vals[i - 1] : null;
+                            const evolPct = prevV != null && prevV > 0 ? ((v - prevV) / prevV) * 100 : null;
+                            // In competitor mode: show % vs mean
                             const diff = capMedia > 0 ? v - capMedia : 0;
-                            const pct  = capMedia > 0 && v > 0 ? (diff / capMedia) * 100 : null;
+                            const pct  = !isDiff && !isEvolucao && !isIgnored && capMedia > 0 && v > 0 ? (diff / capMedia) * 100 : null;
                             return (
                               <td key={i} className="px-3 py-1.5 text-right">
                                 <div className="font-bold tabular-nums">
                                   {v > 0 ? formatCurrency(v) : <span className="text-muted-foreground/30">—</span>}
                                 </div>
-                                {v > 0 && pct !== null && Math.abs(pct) > 0.05 && (
+                                {/* Evolution: delta from previous version */}
+                                {evolPct !== null && v > 0 && (
+                                  <div className={cn('text-[10px] tabular-nums font-medium',
+                                    evolPct > 0 ? 'text-red-500' : 'text-green-600')}>
+                                    {evolPct > 0 ? '+' : ''}{evolPct.toFixed(1)}%
+                                    <span className="opacity-60 ml-0.5">vs ant.</span>
+                                  </div>
+                                )}
+                                {/* Competitor: delta from mean */}
+                                {pct !== null && Math.abs(pct) > 0.05 && (
                                   <div className={cn('text-[10px] tabular-nums',
                                     diff > 0 ? 'text-red-500' : 'text-green-600')}>
                                     {diff > 0 ? '+' : ''}{formatCurrency(diff)} ({pct > 0 ? '+' : ''}{pct.toFixed(1)}%)
@@ -1973,9 +2383,44 @@ export default function OrcamentosPage() {
                               </td>
                             );
                           })}
-                          <td className="px-3 py-1.5 text-right font-bold tabular-nums text-blue-600">
-                            {capMedia > 0 ? formatCurrency(capMedia) : '—'}
-                          </td>
+                          {/* Last column: evolution Δ first→last | competitor diff | mean */}
+                          {isEvolucao ? (
+                            <td className="px-3 py-1.5 text-right font-bold tabular-nums">
+                              {!isIgnored && (vals[0] > 0 || vals[vals.length - 1] > 0) && (
+                                <>
+                                  <div className={cn(capEvolDelta > 0 ? 'text-red-600' : capEvolDelta < 0 ? 'text-green-600' : 'text-muted-foreground')}>
+                                    {capEvolDelta === 0 ? '—' : (capEvolDelta > 0 ? '+' : '') + formatCurrency(capEvolDelta)}
+                                  </div>
+                                  {capEvolDeltaPct !== null && Math.abs(capEvolDeltaPct) > 0.05 && (
+                                    <div className={cn('text-[10px] font-normal tabular-nums',
+                                      capEvolDelta > 0 ? 'text-red-400' : 'text-green-500')}>
+                                      {capEvolDeltaPct > 0 ? '+' : ''}{capEvolDeltaPct.toFixed(1)}%
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                            </td>
+                          ) : isDiff ? (
+                            <td className="px-3 py-1.5 text-right font-bold tabular-nums">
+                              {!isIgnored && (
+                                <>
+                                  <div className={cn(capDiff > 0 ? 'text-red-600' : capDiff < 0 ? 'text-green-600' : 'text-muted-foreground')}>
+                                    {vals[0] === 0 && vals[1] === 0 ? '—' : (capDiff >= 0 ? '+' : '') + formatCurrency(capDiff)}
+                                  </div>
+                                  {capDiffPct !== null && Math.abs(capDiffPct) > 0.05 && (
+                                    <div className={cn('text-[10px] tabular-nums font-normal',
+                                      capDiff > 0 ? 'text-red-400' : 'text-green-500')}>
+                                      {capDiffPct > 0 ? '+' : ''}{capDiffPct.toFixed(1)}%
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                            </td>
+                          ) : (
+                            <td className="px-3 py-1.5 text-right font-bold tabular-nums text-blue-600">
+                              {!isIgnored && (capMedia > 0 ? formatCurrency(capMedia) : '—')}
+                            </td>
+                          )}
                         </tr>
 
                         {/* Article rows */}
@@ -1988,8 +2433,11 @@ export default function OrcamentosPage() {
                           const artNZ    = artVals.filter(v => v > 0);
                           const artMedia = artNZ.length > 0 ? artNZ.reduce((s, v) => s + v, 0) / artNZ.length : 0;
                           const indent   = (nivel - 2) * 12 + 12;
+                          const artDiff    = isDiff ? artVals[1] - artVals[0] : 0;
+                          const artDiffPct = isDiff && artVals[0] > 0 ? (artDiff / artVals[0]) * 100 : null;
                           return (
                             <tr key={`${cap}-${num}`} className="border-b bg-white hover:bg-blue-50/20">
+                              <td className="px-1 py-1" />
                               <td className="px-1 py-1" />
                               <td className="py-1.5 font-mono text-[11px] text-blue-700/70 whitespace-nowrap"
                                 style={{ paddingLeft: `${indent + 12}px` }}>{num}</td>
@@ -1998,15 +2446,23 @@ export default function OrcamentosPage() {
                                 {unid && <p className="text-[10px] text-muted-foreground/60">{unid}</p>}
                               </td>
                               {arts.map((art, i) => {
-                                const v    = art?.total ?? 0;
-                                const diff = artMedia > 0 ? v - artMedia : 0;
-                                const pct  = artMedia > 0 && v > 0 ? (diff / artMedia) * 100 : null;
+                                const v       = art?.total ?? 0;
+                                const prevArt = isEvolucao && i > 0 ? (artVals[i - 1]) : null;
+                                const evolPct = prevArt != null && prevArt > 0 ? ((v - prevArt) / prevArt) * 100 : null;
+                                const diff    = artMedia > 0 ? v - artMedia : 0;
+                                const pct     = !isDiff && !isEvolucao && artMedia > 0 && v > 0 ? (diff / artMedia) * 100 : null;
                                 return (
                                   <td key={i} className="px-3 py-1.5 text-right">
                                     <div className="text-[11px] font-medium tabular-nums">
                                       {v > 0 ? formatCurrency(v) : <span className="text-muted-foreground/25">—</span>}
                                     </div>
-                                    {v > 0 && pct !== null && Math.abs(pct) > 0.05 && (
+                                    {evolPct !== null && v > 0 && (
+                                      <div className={cn('text-[10px] tabular-nums font-medium',
+                                        evolPct > 0 ? 'text-red-400' : 'text-green-500')}>
+                                        {evolPct > 0 ? '+' : ''}{evolPct.toFixed(1)}%
+                                      </div>
+                                    )}
+                                    {pct !== null && Math.abs(pct) > 0.05 && (
                                       <div className={cn('text-[10px] tabular-nums',
                                         diff > 0 ? 'text-red-400' : 'text-green-500')}>
                                         {diff > 0 ? '+' : ''}{pct.toFixed(1)}%
@@ -2015,9 +2471,38 @@ export default function OrcamentosPage() {
                                   </td>
                                 );
                               })}
-                              <td className="px-3 py-1.5 text-right text-[11px] font-medium tabular-nums text-blue-600">
-                                {artMedia > 0 ? formatCurrency(artMedia) : '—'}
-                              </td>
+                              {isEvolucao ? (() => {
+                                const a0 = artVals[0]; const aN = artVals[artVals.length - 1];
+                                const d  = aN - a0; const p = a0 > 0 ? (d / a0) * 100 : null;
+                                return (
+                                  <td className="px-3 py-1.5 text-right text-[11px] font-medium tabular-nums">
+                                    <div className={cn(d > 0 ? 'text-red-600' : d < 0 ? 'text-green-600' : 'text-muted-foreground')}>
+                                      {a0 === 0 && aN === 0 ? '—' : (d >= 0 ? '+' : '') + formatCurrency(d)}
+                                    </div>
+                                    {p !== null && Math.abs(p) > 0.05 && (
+                                      <div className={cn('text-[10px] font-normal', d > 0 ? 'text-red-400' : 'text-green-500')}>
+                                        {p > 0 ? '+' : ''}{p.toFixed(1)}%
+                                      </div>
+                                    )}
+                                  </td>
+                                );
+                              })() : isDiff ? (
+                                <td className="px-3 py-1.5 text-right text-[11px] font-medium tabular-nums">
+                                  <div className={cn(artDiff > 0 ? 'text-red-600' : artDiff < 0 ? 'text-green-600' : 'text-muted-foreground')}>
+                                    {artVals[0] === 0 && artVals[1] === 0 ? '—' : (artDiff >= 0 ? '+' : '') + formatCurrency(artDiff)}
+                                  </div>
+                                  {artDiffPct !== null && Math.abs(artDiffPct) > 0.05 && (
+                                    <div className={cn('text-[10px] font-normal',
+                                      artDiff > 0 ? 'text-red-400' : 'text-green-500')}>
+                                      {artDiffPct > 0 ? '+' : ''}{artDiffPct.toFixed(1)}%
+                                    </div>
+                                  )}
+                                </td>
+                              ) : (
+                                <td className="px-3 py-1.5 text-right text-[11px] font-medium tabular-nums text-blue-600">
+                                  {artMedia > 0 ? formatCurrency(artMedia) : '—'}
+                                </td>
+                              )}
                             </tr>
                           );
                         })}
@@ -2028,11 +2513,14 @@ export default function OrcamentosPage() {
                   {/* Totals row */}
                   <tr className="border-t-2 bg-muted/30 font-bold">
                     <td className="px-1" />
-                    <td className="px-3 py-2 font-semibold" colSpan={2}>Total</td>
+                    <td className="px-1" />
+                    <td className="px-3 py-2 font-semibold" colSpan={2}>
+                      Total{ignoredCaps.size > 0 && <span className="text-[10px] font-normal text-muted-foreground ml-1.5">({ignoredCaps.size} cap. excluído{ignoredCaps.size !== 1 ? 's' : ''})</span>}
+                    </td>
                     {projsSel.map((p, i) => {
-                      const v    = getProjetoTotal(p);
-                      const diff = stats ? v - stats.media : 0;
-                      const pct  = stats && stats.media > 0 ? (diff / stats.media) * 100 : null;
+                      const v    = adjTotais[i];
+                      const diff = adjStats ? v - adjStats.media : 0;
+                      const pct  = !isDiff && adjStats && adjStats.media > 0 ? (diff / adjStats.media) * 100 : null;
                       return (
                         <td key={p.id} className="px-3 py-2 text-right">
                           <div className="tabular-nums" style={{ color: ORC_PALETTE[i % ORC_PALETTE.length] }}>
@@ -2047,20 +2535,57 @@ export default function OrcamentosPage() {
                         </td>
                       );
                     })}
-                    <td className="px-3 py-2 text-right tabular-nums text-blue-600">
-                      {stats ? formatCurrency(stats.media) : '—'}
-                      {temM2 && stats && (
-                        <div className="text-[10px] font-normal text-blue-500">
-                          {formatCurrency(Math.round(stats.media / m2Val))}/m²
-                        </div>
-                      )}
-                    </td>
+                    {isEvolucao ? (() => {
+                      const t0   = adjTotais[0];
+                      const tN   = adjTotais[adjTotais.length - 1];
+                      const diff = tN - t0;
+                      const pct  = t0 > 0 ? (diff / t0) * 100 : null;
+                      return (
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          <div className={cn('font-bold', diff > 0 ? 'text-red-600' : diff < 0 ? 'text-green-600' : 'text-muted-foreground')}>
+                            {diff === 0 ? '—' : (diff >= 0 ? '+' : '') + formatCurrency(diff)}
+                          </div>
+                          {pct !== null && Math.abs(pct) > 0.05 && (
+                            <div className={cn('text-[10px] font-normal', diff > 0 ? 'text-red-400' : 'text-green-500')}>
+                              {pct > 0 ? '+' : ''}{pct.toFixed(1)}%
+                            </div>
+                          )}
+                        </td>
+                      );
+                    })() : isDiff ? (() => {
+                      const t0   = adjTotais[0];
+                      const t1   = adjTotais[1];
+                      const diff = t1 - t0;
+                      const pct  = t0 > 0 ? (diff / t0) * 100 : null;
+                      return (
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          <div className={cn('font-bold', diff > 0 ? 'text-red-600' : diff < 0 ? 'text-green-600' : 'text-muted-foreground')}>
+                            {(diff >= 0 ? '+' : '') + formatCurrency(diff)}
+                          </div>
+                          {pct !== null && Math.abs(pct) > 0.05 && (
+                            <div className={cn('text-[10px] font-normal', diff > 0 ? 'text-red-400' : 'text-green-500')}>
+                              {pct > 0 ? '+' : ''}{pct.toFixed(1)}%
+                            </div>
+                          )}
+                        </td>
+                      );
+                    })() : (
+                      <td className="px-3 py-2 text-right tabular-nums text-blue-600">
+                        {adjStats ? formatCurrency(adjStats.media) : '—'}
+                        {temM2 && adjStats && (
+                          <div className="text-[10px] font-normal text-blue-500">
+                            {formatCurrency(Math.round(adjStats.media / m2Val))}/m²
+                          </div>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 </tbody>
               </table>
             </div>
           </Card>
-        )}
+          );
+        })()}
 
         {/* Chapter grouped bar chart */}
         {temProjsSel && allCaps.length > 0 && (
@@ -2116,6 +2641,112 @@ export default function OrcamentosPage() {
             </CardContent>
           </Card>
         )}
+
+        {/* Dialog: Guardar análise */}
+        <Dialog open={showGravarAnalise} onOpenChange={setShowGravarAnalise}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader><DialogTitle>Guardar análise</DialogTitle></DialogHeader>
+            <div className="py-2">
+              <Label className="text-sm">Nome</Label>
+              <Input className="mt-1.5" placeholder="Ex: Comparação final" autoFocus
+                value={nomeAnalise} onChange={e => setNomeAnalise(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && nomeAnalise.trim() && (gravarAnalise(selectedOrc.id, nomeAnalise.trim()), setShowGravarAnalise(false))} />
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowGravarAnalise(false)}>Cancelar</Button>
+              <Button disabled={!nomeAnalise.trim()} onClick={() => { gravarAnalise(selectedOrc.id, nomeAnalise.trim()); setShowGravarAnalise(false); }}>Guardar</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Dialog: Criar Cenário */}
+        <Dialog open={showCriarCenario} onOpenChange={setShowCriarCenario}>
+          <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
+            <DialogHeader><DialogTitle>Criar Cenário</DialogTitle></DialogHeader>
+            <div className="flex gap-3 py-2">
+              <div className="flex-1">
+                <Label className="text-xs">Nome</Label>
+                <Input className="mt-1 h-8 text-sm" value={nomeCenario} onChange={e => setNomeCenario(e.target.value)} />
+              </div>
+              <div className="w-24">
+                <Label className="text-xs">Versão</Label>
+                <Input className="mt-1 h-8 text-sm" placeholder="C1" value={versaoCenario} onChange={e => setVersaoCenario(e.target.value)} />
+              </div>
+            </div>
+            <div className="overflow-auto flex-1 border rounded-lg">
+              <table className="w-full text-xs border-collapse">
+                <thead className="sticky top-0 bg-muted/80">
+                  <tr className="border-b text-muted-foreground">
+                    <th className="px-3 py-2 text-left w-14">Cap.</th>
+                    <th className="px-3 py-2 text-left">Descrição</th>
+                    <th className="px-3 py-2 text-left w-40">Fonte</th>
+                    <th className="px-3 py-2 text-right w-28">Valor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cenarioCaps.map((cap, idx) => {
+                    const realProjs = projsSel.filter(p => p.tipo !== 'cenario');
+                    const vals = realProjs.map(p => ({
+                      id: p.id, nome: p.nome, versao: p.versao,
+                      total: getCapituloTotais(p).find(c => c.numero === cap.numero)?.total ?? 0,
+                    }));
+                    const media = vals.filter(v => v.total > 0).length > 0
+                      ? vals.filter(v => v.total > 0).reduce((s, v) => s + v.total, 0) / vals.filter(v => v.total > 0).length : 0;
+                    return (
+                      <tr key={cap.numero} className="border-b hover:bg-muted/10">
+                        <td className="px-3 py-2 font-mono font-bold">{cap.numero}</td>
+                        <td className="px-3 py-2 text-muted-foreground truncate max-w-[180px]">{cap.descricao}</td>
+                        <td className="px-3 py-2">
+                          <Select value={cap.fonte} onValueChange={v => {
+                            const total = v === 'media' ? Math.round(media) : (vals.find(x => x.id === v)?.total ?? 0);
+                            setCenarioCaps(prev => prev.map((c, i) => i === idx ? { ...c, fonte: v, totalBase: total } : c));
+                          }}>
+                            <SelectTrigger className="h-7 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="media" className="text-xs">Média ({formatCurrency(Math.round(media))})</SelectItem>
+                              {vals.map(v => (
+                                <SelectItem key={v.id} value={v.id} className="text-xs">
+                                  {v.nome}{v.versao && ` (${v.versao})`} — {formatCurrency(v.total)}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </td>
+                        <td className="px-3 py-2 text-right font-medium tabular-nums">{formatCurrency(cap.totalBase)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot className="sticky bottom-0 bg-muted/80 border-t-2">
+                  <tr>
+                    <td colSpan={3} className="px-3 py-2 font-semibold text-sm">Total</td>
+                    <td className="px-3 py-2 text-right font-bold text-sm tabular-nums">
+                      {formatCurrency(cenarioCaps.reduce((s, c) => s + c.totalBase, 0))}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+            <DialogFooter className="mt-3">
+              <Button variant="outline" onClick={() => setShowCriarCenario(false)}>Cancelar</Button>
+              <Button disabled={!nomeCenario.trim() || cenarioCaps.length === 0} onClick={() => {
+                const novoCenario: Projeto = {
+                  id: v4(), nome: nomeCenario.trim(), versao: versaoCenario.trim(),
+                  criadoEm: new Date().toISOString(), ficheiros: [],
+                  tipo: 'cenario',
+                  cenarioConfig: { capitulos: cenarioCaps, projetosBase: projsSel.filter(p => p.tipo !== 'cenario').map(p => p.id), alteracoes: [] },
+                };
+                updateOrcamentos(prev => prev.map(o =>
+                  o.id === selectedOrc.id ? { ...o, projetos: [...o.projetos, novoCenario] } : o
+                ));
+                setShowCriarCenario(false);
+                toast.success('Cenário criado com sucesso');
+              }}>Criar Cenário</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }
@@ -2132,8 +2763,8 @@ export default function OrcamentosPage() {
             <ArrowLeft className="h-4 w-4" /> Voltar
           </Button>
           <div>
-            <h1 className="section-title">Comparação de Projetos</h1>
-            <p className="section-subtitle">{orcamentos.length} projetos</p>
+            <h1 className="section-title">Comparação de Propostas</h1>
+            <p className="section-subtitle">{orcamentos.length} proposta(s)</p>
           </div>
         </div>
         <div className="space-y-4">
@@ -2194,7 +2825,7 @@ export default function OrcamentosPage() {
             <ArrowLeft className="h-4 w-4" /> Voltar
           </Button>
           <Breadcrumb parts={[
-            { label: 'Orçamentos', onClick: voltarLista },
+            { label: 'Propostas', onClick: voltarLista },
             { label: selectedOrc.nome },
           ]} />
         </div>
@@ -2355,7 +2986,7 @@ export default function OrcamentosPage() {
         {selectedOrc.projetos.length === 0 ? (
           <div className="text-center py-16 text-muted-foreground">
             <FolderOpen className="h-10 w-10 mx-auto mb-3 opacity-30" />
-            <p className="text-sm">Ainda não há orçamentos neste projeto.</p>
+            <p className="text-sm">Ainda não há orçamentos nesta proposta.</p>
             <Button size="sm" variant="outline" className="mt-3 gap-1.5" onClick={() => setShowNovoProj(true)}>
               <Plus className="h-3.5 w-3.5" /> Criar primeiro orçamento
             </Button>
@@ -2383,24 +3014,32 @@ export default function OrcamentosPage() {
                         className="text-sm"
                       />
                       <div className="flex items-center gap-2 mt-1 flex-wrap">
-                        <span className="text-xs text-muted-foreground">
-                          {proj.ficheiros.length} ficheiro(s)
-                        </span>
-                        {caps.length > 0 && (
-                          <div className="flex items-center gap-1 flex-wrap">
-                            {caps.map(c => (
-                              <Badge key={c} variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
-                                Cap. {c}
-                              </Badge>
-                            ))}
-                            {gaps.length > 0 && (
-                              <Badge variant="outline"
-                                className="text-[10px] px-1.5 py-0 h-4 text-amber-600 border-amber-300">
-                                <AlertCircle className="h-2.5 w-2.5 mr-0.5" />
-                                {gaps.join(', ')} em falta
-                              </Badge>
+                        {proj.tipo === 'cenario' ? (
+                          <Badge className="text-[10px] px-1.5 py-0 h-4 bg-purple-100 text-purple-700 border-purple-200 border">
+                            Cenário · {proj.cenarioConfig?.capitulos.length ?? 0} cap.
+                          </Badge>
+                        ) : (
+                          <>
+                            <span className="text-xs text-muted-foreground">
+                              {proj.ficheiros.length} ficheiro(s)
+                            </span>
+                            {caps.length > 0 && (
+                              <div className="flex items-center gap-1 flex-wrap">
+                                {caps.map(c => (
+                                  <Badge key={c} variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
+                                    Cap. {c}
+                                  </Badge>
+                                ))}
+                                {gaps.length > 0 && (
+                                  <Badge variant="outline"
+                                    className="text-[10px] px-1.5 py-0 h-4 text-amber-600 border-amber-300">
+                                    <AlertCircle className="h-2.5 w-2.5 mr-0.5" />
+                                    {gaps.join(', ')} em falta
+                                  </Badge>
+                                )}
+                              </div>
                             )}
-                          </div>
+                          </>
                         )}
                       </div>
                     </div>
@@ -2478,9 +3117,12 @@ export default function OrcamentosPage() {
     const gaps      = detectarGaps(caps);
     const ficheiroIndex: Record<string, number> = {};
     selectedProj.ficheiros.forEach((f, i) => { ficheiroIndex[f.id] = i; });
-    const mergedLinhas = selectedProj.ficheiros
-      .slice().sort((a, b) => a.carregadoEm.localeCompare(b.carregadoEm))
-      .flatMap(f => f.linhas);
+    const mergedLinhas = processarHierarquia(
+      selectedProj.ficheiros
+        .slice().sort((a, b) => a.carregadoEm.localeCompare(b.carregadoEm))
+        .flatMap(f => f.linhas)
+        .map(l => ({ ...l, numero: l.numero ? normalizeNumero(l.numero) : l.numero, nivel: getNivel(l.numero) }))
+    );
 
     return (
       <div className="page-container animate-fade-in">
@@ -2489,7 +3131,7 @@ export default function OrcamentosPage() {
             <ArrowLeft className="h-4 w-4" /> Voltar
           </Button>
           <Breadcrumb parts={[
-            { label: 'Orçamentos', onClick: voltarLista },
+            { label: 'Propostas', onClick: voltarLista },
             { label: selectedOrc?.nome ?? '', onClick: voltarOrcamento },
             { label: selectedProj.nome },
           ]} />
@@ -2512,25 +3154,305 @@ export default function OrcamentosPage() {
               <p className="text-lg font-bold mt-0.5">{formatCurrency(totalProj)}</p>
             </CardContent>
           </Card>
+          {selectedProj.tipo === 'cenario' ? (
+            <Card>
+              <CardContent className="py-3">
+                <p className="text-xs text-muted-foreground">Capítulos</p>
+                <p className="text-lg font-bold mt-0.5">{selectedProj.cenarioConfig?.capitulos.length ?? 0}</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardContent className="py-3">
+                <p className="text-xs text-muted-foreground">Ficheiros</p>
+                <p className="text-lg font-bold mt-0.5">{selectedProj.ficheiros.length}</p>
+              </CardContent>
+            </Card>
+          )}
           <Card>
             <CardContent className="py-3">
-              <p className="text-xs text-muted-foreground">Ficheiros</p>
-              <p className="text-lg font-bold mt-0.5">{selectedProj.ficheiros.length}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="py-3">
-              <p className="text-xs text-muted-foreground">Estado</p>
+              <p className="text-xs text-muted-foreground">Tipo</p>
               <p className={cn('text-sm font-bold mt-0.5',
-                gaps.length > 0 ? 'text-amber-600' : caps.length > 0 ? 'text-green-600' : 'text-muted-foreground')}>
-                {caps.length === 0 ? 'Sem dados' : gaps.length > 0 ? 'Incompleto' : 'Completo'}
+                selectedProj.tipo === 'cenario' ? 'text-purple-600'
+                  : gaps.length > 0 ? 'text-amber-600' : caps.length > 0 ? 'text-green-600' : 'text-muted-foreground')}>
+                {selectedProj.tipo === 'cenario' ? 'Cenário'
+                  : caps.length === 0 ? 'Sem dados' : gaps.length > 0 ? 'Incompleto' : 'Completo'}
               </p>
             </CardContent>
           </Card>
         </div>
 
-        {/* Chapter badges */}
-        {caps.length > 0 && (
+        {/* Cenario editor — replaces upload/files for cenario type */}
+        {selectedProj.tipo === 'cenario' && selectedProj.cenarioConfig && (() => {
+          const baseProjs = selectedOrc?.projetos.filter(p => p.tipo !== 'cenario' && selectedProj.cenarioConfig!.projetosBase.includes(p.id)) ?? [];
+          const editCaps = cenarioEditCaps.length > 0 ? cenarioEditCaps : selectedProj.cenarioConfig.capitulos;
+          const editAlt  = cenarioEditAlteracoes;
+
+          const saveCenario = () => {
+            const updated: Projeto = {
+              ...selectedProj,
+              cenarioConfig: { ...selectedProj.cenarioConfig!, capitulos: editCaps, alteracoes: editAlt },
+            };
+            updateOrcamentos(prev => prev.map(o =>
+              o.id === selectedOrc?.id ? { ...o, projetos: o.projetos.map(p => p.id === updated.id ? updated : p) } : o
+            ));
+            toast.success('Cenário guardado');
+          };
+
+          const totalCenario = editCaps.reduce((s, c) => s + getCenarioCapituloTotal(c, editAlt), 0);
+          const totalAlteracoes = editAlt.reduce((s, a) => s + a.valor, 0);
+
+          const TIPOS_ALT: { tipo: TipoAlteracao; label: string; cor: string; defaultSignal: number }[] = [
+            { tipo: 'otimizacao',   label: 'Otimizações',  cor: 'text-green-700 bg-green-50 border-green-200', defaultSignal: -1 },
+            { tipo: 'por_adicionar', label: 'Por adicionar', cor: 'text-blue-700 bg-blue-50 border-blue-200',   defaultSignal: 1 },
+            { tipo: 'remover',      label: 'Remover',       cor: 'text-red-700 bg-red-50 border-red-200',       defaultSignal: -1 },
+          ];
+
+          const addAlteracao = (tipo: TipoAlteracao) => {
+            setCenarioEditAlteracoes(prev => [...prev, {
+              id: v4(), tipo, capitulo: editCaps[0]?.numero ?? '1', descricao: '', valor: 0,
+            }]);
+          };
+
+          return (
+            <div className="mb-6 space-y-4">
+              {/* Header */}
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Cenário</h2>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5"
+                    onClick={() => {
+                      setCenarioEditCaps(JSON.parse(JSON.stringify(selectedProj.cenarioConfig!.capitulos)));
+                      setCenarioEditAlteracoes(JSON.parse(JSON.stringify(selectedProj.cenarioConfig!.alteracoes ?? [])));
+                      toast.success('Cenário restaurado');
+                    }}>Restaurar</Button>
+                  <Button size="sm" className="h-7 text-xs gap-1.5" onClick={saveCenario}>
+                    <Save className="h-3 w-3" /> Guardar
+                  </Button>
+                </div>
+              </div>
+
+              {/* ── Tabela de capítulos ── */}
+              <Card>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-muted/50 border-b text-muted-foreground">
+                        <th className="px-3 py-2 text-left w-14">Cap.</th>
+                        <th className="px-3 py-2 text-left">Descrição</th>
+                        <th className="px-3 py-2 text-left w-44">Fonte</th>
+                        <th className="px-3 py-2 text-right w-28">Base</th>
+                        <th className="px-3 py-2 text-right w-28">Alterações</th>
+                        <th className="px-3 py-2 text-right w-28">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {editCaps.map((cap, idx) => {
+                        const capAlt = editAlt.filter(a => a.capitulo === cap.numero);
+                        const altTotal = capAlt.reduce((s, a) => s + a.valor, 0);
+                        const capTotal = getCenarioCapituloTotal(cap, editAlt);
+                        return (
+                          <tr key={cap.numero} className="border-b hover:bg-muted/10">
+                            <td className="px-3 py-2 font-mono font-bold text-slate-700">{cap.numero}</td>
+                            <td className="px-3 py-2 font-semibold truncate max-w-[200px]">{cap.descricao}</td>
+                            <td className="px-3 py-2">
+                              <Select value={cap.fonte} onValueChange={v => {
+                                const vals = baseProjs.map(p => getCapituloTotais(p).find(c => c.numero === cap.numero)?.total ?? 0).filter(x => x > 0);
+                                const total = v === 'media'
+                                  ? Math.round(vals.reduce((s, x) => s + x, 0) / (vals.length || 1))
+                                  : (getCapituloTotais(baseProjs.find(p => p.id === v)!).find(c => c.numero === cap.numero)?.total ?? 0);
+                                setCenarioEditCaps(prev => prev.map((c, i) => i === idx ? { ...c, fonte: v, totalBase: total } : c));
+                              }}>
+                                <SelectTrigger className="h-7 text-xs font-normal"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="media" className="text-xs">Média</SelectItem>
+                                  {baseProjs.map(p => (
+                                    <SelectItem key={p.id} value={p.id} className="text-xs">{p.nome}{p.versao && ` (${p.versao})`}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </td>
+                            <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(cap.totalBase)}</td>
+                            <td className={cn('px-3 py-2 text-right tabular-nums text-xs',
+                              altTotal > 0 ? 'text-red-600' : altTotal < 0 ? 'text-green-600' : 'text-muted-foreground/40')}>
+                              {altTotal !== 0 ? `${altTotal > 0 ? '+' : ''}${formatCurrency(altTotal)}` : '—'}
+                              {capAlt.length > 0 && <span className="ml-1 text-[10px]">({capAlt.length})</span>}
+                            </td>
+                            <td className="px-3 py-2 text-right tabular-nums font-bold">{formatCurrency(capTotal)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot className="border-t-2 bg-muted/30">
+                      <tr>
+                        <td colSpan={3} className="px-3 py-2 font-bold text-sm">Total</td>
+                        <td className="px-3 py-2 text-right font-semibold tabular-nums text-sm">
+                          {formatCurrency(editCaps.reduce((s, c) => s + c.totalBase, 0))}
+                        </td>
+                        <td className={cn('px-3 py-2 text-right font-semibold tabular-nums text-sm',
+                          totalAlteracoes > 0 ? 'text-red-600' : totalAlteracoes < 0 ? 'text-green-600' : 'text-muted-foreground')}>
+                          {totalAlteracoes !== 0 ? `${totalAlteracoes > 0 ? '+' : ''}${formatCurrency(totalAlteracoes)}` : '—'}
+                        </td>
+                        <td className="px-3 py-2 text-right font-bold tabular-nums text-sm">{formatCurrency(totalCenario)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </Card>
+
+              {/* ── Alterações ao Orçamento ── */}
+              <div>
+                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+                  Alterações ao Orçamento
+                </h3>
+                <div className="space-y-4">
+                  {TIPOS_ALT.map(({ tipo, label, cor }) => {
+                    const items = editAlt.filter(a => a.tipo === tipo);
+                    const subtotal = items.reduce((s, a) => s + a.valor, 0);
+                    return (
+                      <Card key={tipo} className={cn('border', cor.split(' ')[2])}>
+                        <CardContent className="py-3 px-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <span className={cn('text-xs font-semibold px-2 py-0.5 rounded-full border', cor)}>{label}</span>
+                              {items.length > 0 && (
+                                <span className={cn('text-xs font-semibold tabular-nums',
+                                  subtotal > 0 ? 'text-red-600' : subtotal < 0 ? 'text-green-600' : 'text-muted-foreground')}>
+                                  {subtotal > 0 ? '+' : ''}{formatCurrency(subtotal)}
+                                </span>
+                              )}
+                            </div>
+                            <Button size="sm" variant="ghost" className="h-6 text-xs gap-1 px-2"
+                              onClick={() => addAlteracao(tipo)}>
+                              <Plus className="h-3 w-3" /> Adicionar
+                            </Button>
+                          </div>
+                          {items.length === 0 ? (
+                            <p className="text-xs text-muted-foreground italic py-1">Sem {label.toLowerCase()}. Clique em Adicionar.</p>
+                          ) : (
+                            <div className="space-y-1">
+                              {items.map(aj => (
+                                <div key={aj.id} className="flex items-center gap-2">
+                                  <Select value={aj.capitulo} onValueChange={v =>
+                                    setCenarioEditAlteracoes(prev => prev.map(a => a.id === aj.id ? { ...a, capitulo: v } : a))
+                                  }>
+                                    <SelectTrigger className="h-7 w-16 text-xs font-mono shrink-0">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {editCaps.map(c => (
+                                        <SelectItem key={c.numero} value={c.numero} className="text-xs font-mono">
+                                          {c.numero}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  <Input
+                                    className="h-7 text-xs flex-1"
+                                    placeholder="Descrição do artigo…"
+                                    value={aj.descricao}
+                                    onChange={e => setCenarioEditAlteracoes(prev => prev.map(a => a.id === aj.id ? { ...a, descricao: e.target.value } : a))}
+                                  />
+                                  <Input
+                                    className="h-7 text-xs w-28 text-right tabular-nums"
+                                    placeholder="0"
+                                    value={aj.valor === 0 ? '' : aj.valor}
+                                    onChange={e => {
+                                      const val = parseFloat(e.target.value.replace(',', '.')) || 0;
+                                      setCenarioEditAlteracoes(prev => prev.map(a => a.id === aj.id ? { ...a, valor: val } : a));
+                                    }}
+                                  />
+                                  <button
+                                    className="h-6 w-6 rounded flex items-center justify-center text-muted-foreground hover:text-red-600 hover:bg-red-50 shrink-0"
+                                    onClick={() => setCenarioEditAlteracoes(prev => prev.filter(a => a.id !== aj.id))}>
+                                    <X className="h-3 w-3" />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* ── Resumo por capítulo ── */}
+              {editAlt.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+                    Resumo por Capítulo
+                  </h3>
+                  <Card>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs border-collapse">
+                        <thead>
+                          <tr className="bg-muted/50 border-b text-muted-foreground">
+                            <th className="px-3 py-2 text-left w-14">Cap.</th>
+                            <th className="px-3 py-2 text-left">Descrição</th>
+                            <th className="px-3 py-2 text-right w-28">Base</th>
+                            <th className="px-3 py-2 text-right w-24">Otim.</th>
+                            <th className="px-3 py-2 text-right w-24">+ Adicionar</th>
+                            <th className="px-3 py-2 text-right w-24">Remover</th>
+                            <th className="px-3 py-2 text-right w-28 font-semibold text-foreground">Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {editCaps.map(cap => {
+                            const otim   = editAlt.filter(a => a.capitulo === cap.numero && a.tipo === 'otimizacao').reduce((s, a) => s + a.valor, 0);
+                            const addc   = editAlt.filter(a => a.capitulo === cap.numero && a.tipo === 'por_adicionar').reduce((s, a) => s + a.valor, 0);
+                            const rem    = editAlt.filter(a => a.capitulo === cap.numero && a.tipo === 'remover').reduce((s, a) => s + a.valor, 0);
+                            const capAltTotal = otim + addc + rem;
+                            if (capAltTotal === 0) return null;
+                            return (
+                              <tr key={cap.numero} className="border-b hover:bg-muted/10">
+                                <td className="px-3 py-2 font-mono font-bold">{cap.numero}</td>
+                                <td className="px-3 py-2 font-medium truncate max-w-[180px]">{cap.descricao}</td>
+                                <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(cap.totalBase)}</td>
+                                <td className={cn('px-3 py-2 text-right tabular-nums', otim !== 0 ? 'text-green-700' : 'text-muted-foreground/30')}>
+                                  {otim !== 0 ? `${otim > 0 ? '+' : ''}${formatCurrency(otim)}` : '—'}
+                                </td>
+                                <td className={cn('px-3 py-2 text-right tabular-nums', addc !== 0 ? 'text-blue-700' : 'text-muted-foreground/30')}>
+                                  {addc !== 0 ? `${addc > 0 ? '+' : ''}${formatCurrency(addc)}` : '—'}
+                                </td>
+                                <td className={cn('px-3 py-2 text-right tabular-nums', rem !== 0 ? 'text-red-700' : 'text-muted-foreground/30')}>
+                                  {rem !== 0 ? `${rem > 0 ? '+' : ''}${formatCurrency(rem)}` : '—'}
+                                </td>
+                                <td className="px-3 py-2 text-right tabular-nums font-bold">
+                                  {formatCurrency(getCenarioCapituloTotal(cap, editAlt))}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                        <tfoot className="border-t-2 bg-muted/30">
+                          <tr>
+                            <td colSpan={2} className="px-3 py-2 font-bold text-sm">Total</td>
+                            <td className="px-3 py-2 text-right font-semibold tabular-nums">{formatCurrency(editCaps.reduce((s, c) => s + c.totalBase, 0))}</td>
+                            <td className={cn('px-3 py-2 text-right font-semibold tabular-nums', editAlt.filter(a=>a.tipo==='otimizacao').reduce((s,a)=>s+a.valor,0) !== 0 ? 'text-green-700' : 'text-muted-foreground/40')}>
+                              {(() => { const v = editAlt.filter(a=>a.tipo==='otimizacao').reduce((s,a)=>s+a.valor,0); return v !== 0 ? `${v>0?'+':''}${formatCurrency(v)}` : '—'; })()}
+                            </td>
+                            <td className={cn('px-3 py-2 text-right font-semibold tabular-nums', editAlt.filter(a=>a.tipo==='por_adicionar').reduce((s,a)=>s+a.valor,0) !== 0 ? 'text-blue-700' : 'text-muted-foreground/40')}>
+                              {(() => { const v = editAlt.filter(a=>a.tipo==='por_adicionar').reduce((s,a)=>s+a.valor,0); return v !== 0 ? `${v>0?'+':''}${formatCurrency(v)}` : '—'; })()}
+                            </td>
+                            <td className={cn('px-3 py-2 text-right font-semibold tabular-nums', editAlt.filter(a=>a.tipo==='remover').reduce((s,a)=>s+a.valor,0) !== 0 ? 'text-red-700' : 'text-muted-foreground/40')}>
+                              {(() => { const v = editAlt.filter(a=>a.tipo==='remover').reduce((s,a)=>s+a.valor,0); return v !== 0 ? `${v>0?'+':''}${formatCurrency(v)}` : '—'; })()}
+                            </td>
+                            <td className="px-3 py-2 text-right font-bold tabular-nums text-sm">{formatCurrency(totalCenario)}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </Card>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* Chapter badges (only for regular orçamentos) */}
+        {selectedProj.tipo !== 'cenario' && caps.length > 0 && (
           <Card className="mb-4">
             <CardContent className="py-3 px-4">
               <p className="text-xs text-muted-foreground font-medium mb-2">Capítulos presentes</p>
@@ -2547,8 +3469,8 @@ export default function OrcamentosPage() {
           </Card>
         )}
 
-        {/* Upload zone */}
-        <div
+        {/* Upload zone — hidden for cenarios */}
+        {selectedProj.tipo !== 'cenario' && <div
           role="button" tabIndex={0} aria-label="Carregar ficheiro Excel"
           className={cn(
             'border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all mb-6 select-none outline-none',
@@ -2574,10 +3496,10 @@ export default function OrcamentosPage() {
               else parseParaBatch(files).then(fps => { if (fps.length) { setIsBatchMode(true); setBatchFiles(fps); setView('batch'); } });
               e.target.value = '';
             }} />
-        </div>
+        </div>}
 
         {/* Ficheiros list + toggle */}
-        {selectedProj.ficheiros.length > 0 && (
+        {selectedProj.tipo !== 'cenario' && selectedProj.ficheiros.length > 0 && (
           <>
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
@@ -2647,8 +3569,8 @@ export default function OrcamentosPage() {
     <div className="page-container animate-fade-in">
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="section-title">Orçamentos</h1>
-          <p className="section-subtitle mt-1">Gerencie projetos e compare propostas</p>
+          <h1 className="section-title">Propostas</h1>
+          <p className="section-subtitle mt-1">Gerencie propostas de empreiteiros e compare orçamentos</p>
         </div>
         <div className="flex gap-2">
           {orcamentos.length >= 2 && (
@@ -2657,7 +3579,7 @@ export default function OrcamentosPage() {
             </Button>
           )}
           <Button size="sm" className="gap-1.5" onClick={() => setShowNovoOrc(true)}>
-            <Plus className="h-3.5 w-3.5" /> Novo Projeto
+            <Plus className="h-3.5 w-3.5" /> Nova Proposta
           </Button>
         </div>
       </div>
@@ -2665,10 +3587,10 @@ export default function OrcamentosPage() {
       {orcamentos.length === 0 ? (
         <div className="text-center py-20 text-muted-foreground">
           <BarChart2 className="h-12 w-12 mx-auto mb-4 opacity-20" />
-          <p className="text-sm font-medium">Ainda não tem projetos.</p>
-          <p className="text-xs mt-1 mb-4">Crie um projeto para começar a organizar orçamentos.</p>
+          <p className="text-sm font-medium">Ainda não tem propostas.</p>
+          <p className="text-xs mt-1 mb-4">Crie uma proposta para começar a organizar orçamentos.</p>
           <Button variant="outline" className="gap-1.5" onClick={() => setShowNovoOrc(true)}>
-            <Plus className="h-4 w-4" /> Criar primeiro projeto
+            <Plus className="h-4 w-4" /> Criar primeira proposta
           </Button>
         </div>
       ) : (
@@ -2679,24 +3601,39 @@ export default function OrcamentosPage() {
             const displayTotal = defaultProj ? getProjetoTotal(defaultProj) : getTotalAtivo(orc);
             const displayLabel = defaultProj ? defaultProj.nome : null;
             return (
-              <Card key={orc.id} className="hover:shadow-sm transition-shadow cursor-pointer"
-                onClick={() => irParaOrcamento(orc.id)}>
+              <Card key={orc.id} className="hover:shadow-sm transition-shadow">
                 <CardContent className="py-3 px-4 flex items-center gap-3">
-                  <FolderOpen className="h-5 w-5 text-blue-600 shrink-0" />
-                  <div className="flex-1 min-w-0">
+                  <FolderOpen className="h-5 w-5 text-blue-600 shrink-0 cursor-pointer" onClick={() => irParaOrcamento(orc.id)} />
+                  <div className="flex-1 min-w-0 cursor-pointer" onClick={() => irParaOrcamento(orc.id)}>
                     <p className="text-sm font-medium truncate">{orc.nome}</p>
                     <p className="text-xs text-muted-foreground mt-0.5">
                       {orc.projetos.length} orçamento(s) · {nFics} ficheiro(s) ·{' '}
                       {new Date(orc.criadoEm).toLocaleDateString('pt-PT')}
-                      {(orc.m2AcimaSolo + orc.m2AbaixoSolo) > 0 && (
-                        <span> · {orc.m2AcimaSolo + orc.m2AbaixoSolo} m²</span>
-                      )}
-                      {orc.numApartamentos > 0 && (
-                        <span> · {orc.numApartamentos} apt.</span>
-                      )}
+                      {(orc.m2AcimaSolo + orc.m2AbaixoSolo) > 0 && <span> · {orc.m2AcimaSolo + orc.m2AbaixoSolo} m²</span>}
                     </p>
                   </div>
-                  <div className="text-right shrink-0">
+                  {topProjetos.length > 0 && (
+                    <div onClick={e => e.stopPropagation()}>
+                      <Select
+                        value={orc.projetoId || '__none__'}
+                        onValueChange={v => updateOrcamentos(prev => prev.map(o =>
+                          o.id === orc.id ? { ...o, projetoId: v === '__none__' ? null : v } : o
+                        ))}
+                      >
+                        <SelectTrigger className="h-7 text-xs w-36 border-dashed">
+                          <Link2 className="h-3 w-3 mr-1.5 shrink-0 text-muted-foreground" />
+                          <SelectValue placeholder="Projeto…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__" className="text-xs text-muted-foreground">— Sem projeto —</SelectItem>
+                          {topProjetos.map(p => (
+                            <SelectItem key={p.id} value={p.id} className="text-xs">{p.nome}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                  <div className="text-right shrink-0 cursor-pointer" onClick={() => irParaOrcamento(orc.id)}>
                     <p className="text-sm font-bold">{formatCurrency(displayTotal)}</p>
                     {displayLabel && (
                       <p className="text-[10px] text-amber-600 font-medium flex items-center justify-end gap-0.5 mt-0.5">
@@ -2717,15 +3654,29 @@ export default function OrcamentosPage() {
         </div>
       )}
 
-      {/* Dialog: Novo Projeto */}
-      <Dialog open={showNovoOrc} onOpenChange={setShowNovoOrc}>
+      {/* Dialog: Nova Proposta */}
+      <Dialog open={showNovoOrc} onOpenChange={(o) => { setShowNovoOrc(o); if (!o) { setNovoOrcNome(''); setNovoOrcProjetoId(''); } }}>
         <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle>Novo Projeto</DialogTitle></DialogHeader>
-          <div className="py-2">
-            <Label htmlFor="orc-nome" className="text-sm">Nome do projeto</Label>
-            <Input id="orc-nome" className="mt-1.5" placeholder="Ex: Moradia T3 – Lote 5"
-              value={novoOrcNome} onChange={(e) => setNovoOrcNome(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && criarOrcamento()} />
+          <DialogHeader><DialogTitle>Nova Proposta</DialogTitle></DialogHeader>
+          <div className="py-2 space-y-3">
+            <div>
+              <Label htmlFor="orc-nome" className="text-sm">Nome da proposta</Label>
+              <Input id="orc-nome" className="mt-1.5" placeholder="Ex: Construtora Silva"
+                value={novoOrcNome} onChange={(e) => setNovoOrcNome(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && criarOrcamento()} autoFocus />
+            </div>
+            {topProjetos.length > 0 && (
+              <div>
+                <Label className="text-sm">Projeto <span className="text-muted-foreground font-normal">(opcional)</span></Label>
+                <Select value={novoOrcProjetoId || '__none__'} onValueChange={v => setNovoOrcProjetoId(v === '__none__' ? '' : v)}>
+                  <SelectTrigger className="mt-1.5 h-9 text-sm"><SelectValue placeholder="Associar a um projeto…" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__" className="text-sm text-muted-foreground">— Sem projeto —</SelectItem>
+                    {topProjetos.map(p => <SelectItem key={p.id} value={p.id} className="text-sm">{p.nome}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowNovoOrc(false)}>Cancelar</Button>
