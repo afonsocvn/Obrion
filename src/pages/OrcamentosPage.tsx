@@ -817,24 +817,22 @@ export default function OrcamentosPage() {
   const topProjetos = _allProjetos.filter(p => p.tipo === 'projeto');
   const workspaceId                 = activeWorkspace?.id ?? null;
 
-  // Navigation — restore from sessionStorage on mount so refreshes don't lose position
+  // Navigation — restore from sessionStorage on mount so page changes don't lose position
   const NAV_KEY = 'orc_nav';
   const savedNav = (() => { try { return JSON.parse(sessionStorage.getItem(NAV_KEY) ?? '{}'); } catch { return {}; } })();
-  // Only restore stable views (not transient upload/batch states)
   const STABLE_VIEWS: View[] = ['lista', 'orcamento', 'projeto', 'comparar-orc', 'comparar'];
   const initialView: View = STABLE_VIEWS.includes(savedNav.view) ? savedNav.view : 'lista';
 
-  const [view, setViewRaw]                  = useState<View>(initialView);
+  const [view, setView]                     = useState<View>(initialView);
   const [selectedOrcId, setSelectedOrcId]   = useState<string | null>(savedNav.orcId ?? null);
   const [selectedProjId, setSelectedProjId] = useState<string | null>(savedNav.projId ?? null);
 
-  const saveNav = (v: View, orcId: string | null, projId: string | null) => {
-    sessionStorage.setItem(NAV_KEY, JSON.stringify({ view: v, orcId, projId }));
-  };
-  const setView = (v: View) => {
-    setViewRaw(v);
-    saveNav(v, selectedOrcId, v === 'projeto' ? selectedProjId : null);
-  };
+  // Persist nav state so leaving and returning to this page restores position
+  useEffect(() => {
+    if (STABLE_VIEWS.includes(view)) {
+      sessionStorage.setItem(NAV_KEY, JSON.stringify({ view, orcId: selectedOrcId, projId: selectedProjId }));
+    }
+  }, [view, selectedOrcId, selectedProjId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Data — start empty; populated by Supabase (or localStorage fallback) on mount
   const [orcamentos, setOrcamentos]   = useState<Orcamento[]>([]);
@@ -1128,8 +1126,7 @@ export default function OrcamentosPage() {
 
   const irParaOrcamento = (orcId: string) => {
     setSelectedOrcId(orcId);
-    setViewRaw('orcamento');
-    saveNav('orcamento', orcId, null);
+    setView('orcamento');
   };
   const irParaProjeto   = (projId: string) => {
     setSelectedProjId(projId);
@@ -1139,11 +1136,10 @@ export default function OrcamentosPage() {
       setCenarioEditCaps(JSON.parse(JSON.stringify(proj.cenarioConfig.capitulos)));
       setCenarioEditAlteracoes(JSON.parse(JSON.stringify(proj.cenarioConfig.alteracoes ?? [])));
     }
-    setViewRaw('projeto');
-    saveNav('projeto', selectedOrcId, projId);
+    setView('projeto');
   };
-  const voltarLista     = () => { setSelectedOrcId(null); setSelectedProjId(null); setViewRaw('lista'); saveNav('lista', null, null); };
-  const voltarOrcamento = () => { setSelectedProjId(null); setViewRaw('orcamento'); saveNav('orcamento', selectedOrcId, null); };
+  const voltarLista     = () => { setSelectedOrcId(null); setSelectedProjId(null); setView('lista'); };
+  const voltarOrcamento = () => { setSelectedProjId(null); setView('orcamento'); };
   const voltarProjeto   = () => { setView('projeto'); resetUpload(); };
 
   const irParaComparacaoOrc = (orcId?: string) => {
