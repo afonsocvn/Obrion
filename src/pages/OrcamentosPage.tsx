@@ -2272,16 +2272,25 @@ export default function OrcamentosPage() {
           const adjTotais    = projsSel.map(p => adjTotal(p));
           const adjStats     = getEstatisticas(adjTotais);
           return (
+          <>
           <Card className="mb-6">
             <CardHeader className="pb-2 pt-4 px-5">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-sm font-semibold">Comparação por Capítulo</CardTitle>
-                {ignoredCaps.size > 0 && (
-                  <button onClick={() => setIgnoredCaps(new Set())}
-                    className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors">
-                    <Eye className="h-3 w-3" /> Mostrar todos ({ignoredCaps.size} ocultos)
-                  </button>
-                )}
+                <div className="flex items-center gap-2">
+                  {ignoredCaps.size > 0 && (
+                    <button onClick={() => setIgnoredCaps(new Set())}
+                      className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors">
+                      <Eye className="h-3 w-3" /> Mostrar todos ({ignoredCaps.size} ocultos)
+                    </button>
+                  )}
+                  {ignoredCaps.size < allCaps.length && (
+                    <button onClick={() => setIgnoredCaps(new Set(allCaps))}
+                      className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors">
+                      <EyeOff className="h-3 w-3" /> Ocultar todos
+                    </button>
+                  )}
+                </div>
               </div>
             </CardHeader>
             <div className="overflow-auto">
@@ -2613,6 +2622,65 @@ export default function OrcamentosPage() {
               </table>
             </div>
           </Card>
+
+          {/* Chapter evolution line chart — only in evolution mode */}
+          {isEvolucao && activeCaps.length > 0 && (() => {
+            const CAP_COLORS = [
+              '#3b82f6','#ef4444','#22c55e','#f59e0b','#8b5cf6',
+              '#ec4899','#06b6d4','#f97316','#84cc16','#6366f1',
+            ];
+            // Build data: one point per version, one key per active chapter
+            const capEvolData = progressao.map(p => {
+              const row: Record<string, number | string> = { versao: p.versao };
+              activeCaps.forEach(cap => {
+                const projsV = projsSel.filter(pr => pr.versao === p.versao);
+                const vals = projsV.map(pr => getCapituloTotais(pr).find(c => c.numero === cap)?.total ?? 0).filter(v => v > 0);
+                row[`Cap ${cap}`] = vals.length > 0 ? Math.round(vals.reduce((s, v) => s + v, 0) / vals.length) : 0;
+              });
+              return row;
+            });
+            const chartH = Math.max(220, activeCaps.length > 6 ? 260 : 220);
+            return (
+              <Card className="mt-4 mb-6">
+                <CardHeader className="pb-2 pt-4 px-5">
+                  <CardTitle className="text-sm font-semibold">
+                    Evolução por Capítulo
+                    {activeCaps.length < allCaps.length && (
+                      <span className="ml-2 text-[11px] font-normal text-muted-foreground">
+                        {activeCaps.length} de {allCaps.length} capítulos visíveis
+                      </span>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pb-4 px-5">
+                  <ResponsiveContainer width="100%" height={chartH}>
+                    <LineChart data={capEvolData} margin={{ left: 10, right: 20, top: 10 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                      <XAxis dataKey="versao" tick={{ fontSize: 11 }} />
+                      <YAxis tickFormatter={(v) => `${(v / 1000).toFixed(0)}k€`} tick={{ fontSize: 11 }} width={52} />
+                      <Tooltip
+                        formatter={(v: number, name: string) => [fmtTooltip(v), name]}
+                        labelFormatter={(v) => `Versão ${v}`}
+                      />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      {activeCaps.map((cap, ci) => (
+                        <Line
+                          key={cap}
+                          type="monotone"
+                          dataKey={`Cap ${cap}`}
+                          stroke={CAP_COLORS[ci % CAP_COLORS.length]}
+                          strokeWidth={2}
+                          dot={{ r: 4, strokeWidth: 2, fill: '#fff' }}
+                          activeDot={{ r: 5 }}
+                        />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            );
+          })()}
+          </>
           );
         })()}
 
