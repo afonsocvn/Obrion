@@ -826,37 +826,25 @@ export default function OrcamentosPage() {
   const [orcamentos, setOrcamentos]   = useState<Orcamento[]>([]);
   const [loadingData, setLoadingData] = useState(true);
 
-  // ── Load from Supabase on mount (+ always upsert localStorage → Supabase) ─
+  // ── Load from Supabase on mount (+ migrate localStorage if DB is empty) ───
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
     (async () => {
       setLoadingData(true);
-      const [dbData, local] = await Promise.all([
-        loadOrcamentosDB(user.id, workspaceId),
-        Promise.resolve(loadOrcamentosLS()),
-      ]);
+      const dbData = await loadOrcamentosDB(user.id, workspaceId);
       if (cancelled) return;
 
       if (dbData.length > 0) {
-        // Merge: DB is source of truth, but push any local-only records to DB
-        const dbIds = new Set(dbData.map(o => o.id));
-        const localOnly = local.filter(o => !dbIds.has(o.id));
-        if (localOnly.length > 0) {
-          await migrateLocalToSupabase(localOnly, user.id, workspaceId);
-        }
-        // Always upsert ALL local records so any locally-saved changes reach Supabase
+        setOrcamentos(dbData);
+        saveOrcamentosLS(dbData);
+      } else {
+        // First time / DB empty for this context: migrate local-only records
+        const local = loadOrcamentosLS();
         if (local.length > 0) {
+          setOrcamentos(local);
           await migrateLocalToSupabase(local, user.id, workspaceId);
         }
-        // Use DB as final state (includes what we just pushed)
-        const merged = [...dbData, ...localOnly];
-        setOrcamentos(merged);
-        saveOrcamentosLS(merged);
-      } else if (local.length > 0) {
-        // First time / DB empty: push everything from localStorage
-        setOrcamentos(local);
-        await migrateLocalToSupabase(local, user.id, workspaceId);
       }
       setLoadingData(false);
     })();
