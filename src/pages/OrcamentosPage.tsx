@@ -2162,38 +2162,43 @@ export default function OrcamentosPage() {
                   </thead>
                   <tbody>
                     {versaoDeltaRows.map((row, i) => {
-                      const deltaVsFirst = i > 0 ? row.total - primeiraVersao!.media : null;
-                      const pctVsFirst   = i > 0 && primeiraVersao!.media > 0
-                        ? (deltaVsFirst! / primeiraVersao!.media) * 100 : null;
-                      const isLast = i === versaoDeltaRows.length - 1;
+                      const isBase       = i === 0;
+                      const deltaVsFirst = isBase ? 0 : row.total - primeiraVersao!.media;
+                      const pctVsFirst   = isBase ? 0 : (primeiraVersao!.media > 0 ? (deltaVsFirst / primeiraVersao!.media) * 100 : 0);
+                      const isLast       = i === versaoDeltaRows.length - 1;
                       return (
-                        <tr key={row.versao} className={cn('border-b', isLast && 'font-semibold bg-muted/20')}>
+                        <tr key={row.versao} className={cn('border-b', isBase ? 'bg-slate-50/60' : isLast && 'font-semibold bg-muted/20')}>
                           <td className="px-3 py-2">
                             <span className={cn('px-2 py-0.5 rounded-full text-xs font-bold border', versaoCor(row.versao))}>
                               {row.versao}
                             </span>
-                            {row.n > 1 && <span className="ml-1.5 text-muted-foreground text-[10px]">média de {row.n}</span>}
+                            {isBase && <span className="ml-1.5 text-[10px] text-muted-foreground">referência</span>}
+                            {!isBase && row.n > 1 && <span className="ml-1.5 text-muted-foreground text-[10px]">média de {row.n}</span>}
                           </td>
                           <td className="px-3 py-2 text-right tabular-nums font-semibold">{formatCurrency(Math.round(row.total))}</td>
                           <td className="px-3 py-2 text-right tabular-nums">
-                            {row.deltaAbs != null ? (
-                              <span className={cn('font-semibold', row.deltaAbs > 0 ? 'text-red-600' : row.deltaAbs < 0 ? 'text-green-600' : 'text-muted-foreground')}>
-                                {row.deltaAbs > 0 ? '+' : ''}{formatCurrency(row.deltaAbs)}
+                            {isBase ? (
+                              <span className="text-muted-foreground font-normal">referência</span>
+                            ) : (
+                              <span className={cn('font-semibold', row.deltaAbs! > 0 ? 'text-red-600' : row.deltaAbs! < 0 ? 'text-green-600' : 'text-muted-foreground')}>
+                                {row.deltaAbs! > 0 ? '+' : ''}{formatCurrency(row.deltaAbs!)}
                                 <span className="font-normal text-[10px] ml-1 opacity-75">
                                   ({row.deltaPct! > 0 ? '+' : ''}{row.deltaPct!.toFixed(1)}%)
                                 </span>
                               </span>
-                            ) : <span className="text-muted-foreground">—</span>}
+                            )}
                           </td>
                           <td className="px-3 py-2 text-right tabular-nums">
-                            {deltaVsFirst != null ? (
+                            {isBase ? (
+                              <span className="text-muted-foreground font-semibold">+0 (0.0%)</span>
+                            ) : (
                               <span className={cn('font-semibold', deltaVsFirst > 0 ? 'text-red-600' : deltaVsFirst < 0 ? 'text-green-600' : 'text-muted-foreground')}>
                                 {deltaVsFirst > 0 ? '+' : ''}{formatCurrency(deltaVsFirst)}
                                 <span className="font-normal text-[10px] ml-1 opacity-75">
-                                  ({pctVsFirst! > 0 ? '+' : ''}{pctVsFirst!.toFixed(1)}%)
+                                  ({pctVsFirst > 0 ? '+' : ''}{pctVsFirst.toFixed(1)}%)
                                 </span>
                               </span>
-                            ) : <span className="text-muted-foreground">—</span>}
+                            )}
                           </td>
                         </tr>
                       );
@@ -2355,7 +2360,8 @@ export default function OrcamentosPage() {
                           <td className="px-3 py-1.5 font-semibold max-w-[200px] truncate">{capDescricao[cap] ?? '—'}</td>
                           {vals.map((v, i) => {
                             // In evolution mode: show % vs previous version in each cell
-                            const prevV  = isEvolucao && i > 0 ? vals[i - 1] : null;
+                            const prevV   = isEvolucao && i > 0 ? vals[i - 1] : null;
+                            const isBase  = isEvolucao && i === 0;
                             const evolPct = prevV != null && prevV > 0 ? ((v - prevV) / prevV) * 100 : null;
                             // In competitor mode: show % vs mean
                             const diff = capMedia > 0 ? v - capMedia : 0;
@@ -2365,8 +2371,11 @@ export default function OrcamentosPage() {
                                 <div className="font-bold tabular-nums">
                                   {v > 0 ? formatCurrency(v) : <span className="text-muted-foreground/30">—</span>}
                                 </div>
-                                {/* Evolution: delta from previous version */}
-                                {evolPct !== null && v > 0 && (
+                                {/* Evolution: V1 = reference baseline; V2+ = delta from previous */}
+                                {isBase && v > 0 && (
+                                  <div className="text-[10px] text-muted-foreground">referência</div>
+                                )}
+                                {!isBase && evolPct !== null && v > 0 && (
                                   <div className={cn('text-[10px] tabular-nums font-medium',
                                     evolPct > 0 ? 'text-red-500' : 'text-green-600')}>
                                     {evolPct > 0 ? '+' : ''}{evolPct.toFixed(1)}%
@@ -2446,9 +2455,10 @@ export default function OrcamentosPage() {
                                 {unid && <p className="text-[10px] text-muted-foreground/60">{unid}</p>}
                               </td>
                               {arts.map((art, i) => {
-                                const v       = art?.total ?? 0;
-                                const prevArt = isEvolucao && i > 0 ? (artVals[i - 1]) : null;
-                                const evolPct = prevArt != null && prevArt > 0 ? ((v - prevArt) / prevArt) * 100 : null;
+                                const v        = art?.total ?? 0;
+                                const prevArt  = isEvolucao && i > 0 ? (artVals[i - 1]) : null;
+                                const isArtBase = isEvolucao && i === 0;
+                                const evolPct  = prevArt != null && prevArt > 0 ? ((v - prevArt) / prevArt) * 100 : null;
                                 const diff    = artMedia > 0 ? v - artMedia : 0;
                                 const pct     = !isDiff && !isEvolucao && artMedia > 0 && v > 0 ? (diff / artMedia) * 100 : null;
                                 return (
@@ -2456,7 +2466,10 @@ export default function OrcamentosPage() {
                                     <div className="text-[11px] font-medium tabular-nums">
                                       {v > 0 ? formatCurrency(v) : <span className="text-muted-foreground/25">—</span>}
                                     </div>
-                                    {evolPct !== null && v > 0 && (
+                                    {isArtBase && v > 0 && (
+                                      <div className="text-[10px] text-muted-foreground">ref.</div>
+                                    )}
+                                    {!isArtBase && evolPct !== null && v > 0 && (
                                       <div className={cn('text-[10px] tabular-nums font-medium',
                                         evolPct > 0 ? 'text-red-400' : 'text-green-500')}>
                                         {evolPct > 0 ? '+' : ''}{evolPct.toFixed(1)}%
