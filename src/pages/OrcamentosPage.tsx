@@ -2190,7 +2190,7 @@ export default function OrcamentosPage() {
                           </td>
                           <td className="px-3 py-2 text-right tabular-nums">
                             {isBase ? (
-                              <span className="text-muted-foreground font-semibold">+0 (0.0%)</span>
+                              <span className="text-muted-foreground">—</span>
                             ) : (
                               <span className={cn('font-semibold', deltaVsFirst > 0 ? 'text-red-600' : deltaVsFirst < 0 ? 'text-green-600' : 'text-muted-foreground')}>
                                 {deltaVsFirst > 0 ? '+' : ''}{formatCurrency(deltaVsFirst)}
