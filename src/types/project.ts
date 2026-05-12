@@ -79,6 +79,12 @@ export interface TemplateDivisao {
   tarefas: TemplateTarefa[];
 }
 
+export interface ProjetoUnidade {
+  id: string;
+  nome: string;
+  m2: number;
+}
+
 export interface Projeto {
   id: string;
   nome: string;
@@ -95,6 +101,7 @@ export interface Projeto {
   m2Circulacao?: number;
   m2AreasTecnicas?: number;
   m2Terracos?: number;
+  unidades?: ProjetoUnidade[];
 }
 
 export interface MaoDeObra {

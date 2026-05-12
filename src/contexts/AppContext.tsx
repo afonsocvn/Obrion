@@ -49,6 +49,7 @@ function rowToProjeto(row: Record<string, unknown>): Projeto {
     m2Circulacao: Number(row.m2_circulacao) || 0,
     m2AreasTecnicas: Number(row.m2_areas_tecnicas) || 0,
     m2Terracos: Number(row.m2_terracos) || 0,
+    unidades: (row.unidades as Projeto['unidades']) ?? [],
   };
 }
 
@@ -110,6 +111,7 @@ function projetoToRow(p: Projeto, userId: string, workspaceId: string | null) {
     m2_circulacao: p.m2Circulacao ?? 0,
     m2_areas_tecnicas: p.m2AreasTecnicas ?? 0,
     m2_terracos: p.m2Terracos ?? 0,
+    unidades: p.unidades ?? [],
   };
 }
 

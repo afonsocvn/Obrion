@@ -1044,6 +1044,16 @@ export default function OrcamentosPage() {
   const selectedOrc  = orcamentos.find(o => o.id === selectedOrcId) ?? null;
   const selectedProj = selectedOrc?.projetos.find(p => p.id === selectedProjId) ?? null;
 
+  // Memoize heavy chapter totals per project — avoids re-running processarHierarquia
+  // on every state change (e.g. ignoredSubNums toggle)
+  const capTotaisCache = useMemo(() => {
+    const map = new Map<string, CapTotal[]>();
+    (selectedOrc?.projetos ?? []).forEach(p => map.set(p.id, getCapituloTotais(p)));
+    return map;
+  }, [selectedOrc]); // only recompute when orcamento data actually changes
+
+  const getCapTotais = (p: Projeto) => capTotaisCache.get(p.id) ?? getCapituloTotais(p);
+
   const totalProcessado = useMemo(() => {
     const nivel1 = linhasProcessadas.filter(l => getNivel(l.numero) === 1);
     return nivel1.length > 0
@@ -1810,22 +1820,28 @@ export default function OrcamentosPage() {
 
     // Chapter data
     const allCapsSet = new Set<string>();
-    projsSel.forEach(p => getCapituloTotais(p).forEach(c => allCapsSet.add(c.numero)));
+    projsSel.forEach(p => getCapTotais(p).forEach(c => allCapsSet.add(c.numero)));
     const allCaps    = Array.from(allCapsSet).sort((a, b) => parseFloat(a) - parseFloat(b));
+    // Helper: chapter total adjusted for ignored sub-chapters
+    const getAdjustedCapVal = (p: Projeto, cap: string) => {
+      const base = getCapTotais(p).find(c => c.numero === cap)?.total ?? 0;
+      const ignoredDeduct = Array.from(ignoredSubNums)
+        .filter(n => n.startsWith(cap + '.'))
+        .reduce((s, n) => s + (getLinhaTotal(p, n)?.total ?? 0), 0);
+      return Math.max(0, base - ignoredDeduct);
+    };
+
     const capDescricao: Record<string, string> = {};
     for (const cap of allCaps) {
       for (const p of projsSel) {
-        const found = getCapituloTotais(p).find(c => c.numero === cap);
+        const found = getCapTotais(p).find(c => c.numero === cap);
         if (found?.descricao) { capDescricao[cap] = found.descricao; break; }
       }
     }
 
     const capChartData = allCaps.map(cap => {
       const row: Record<string, unknown> = { cap, descricao: capDescricao[cap] ?? '' };
-      projsSel.forEach(p => {
-        const found = getCapituloTotais(p).find(c => c.numero === cap);
-        row[p.nome] = found?.total ?? 0;
-      });
+      projsSel.forEach(p => { row[p.nome] = getAdjustedCapVal(p, cap); });
       return row;
     });
     const totaisChartData = totais.map(t => ({
@@ -2288,10 +2304,7 @@ export default function OrcamentosPage() {
           // isDiff: show difference column for exactly 2 competitors (not in evolution mode)
           const isDiff       = !isEvolucao && projsSel.length === 2;
           const activeCaps   = allCaps.filter(cap => !ignoredCaps.has(cap));
-          const adjTotal     = (p: Projeto) => activeCaps.reduce((sum, cap) => {
-            const found = getCapituloTotais(p).find(c => c.numero === cap);
-            return sum + (found?.total ?? 0);
-          }, 0);
+          const adjTotal     = (p: Projeto) => activeCaps.reduce((sum, cap) => sum + getAdjustedCapVal(p, cap), 0);
           const adjTotais    = projsSel.map(p => adjTotal(p));
           const adjStats     = getEstatisticas(adjTotais);
           return (
@@ -2345,10 +2358,7 @@ export default function OrcamentosPage() {
                   {allCaps.map(cap => {
                     const isIgnored = ignoredCaps.has(cap);
                     const isExp = !isIgnored && expandedCaps.has(cap);
-                    const vals  = projsSel.map(p => {
-                      const found = getCapituloTotais(p).find(c => c.numero === cap);
-                      return found?.total ?? 0;
-                    });
+                    const vals  = projsSel.map(p => getAdjustedCapVal(p, cap));
                     const valsNonZero = vals.filter(v => v > 0);
                     const capMedia    = valsNonZero.length > 0
                       ? valsNonZero.reduce((s, v) => s + v, 0) / valsNonZero.length
@@ -2482,7 +2492,13 @@ export default function OrcamentosPage() {
                               <td className="px-1 py-1 text-center">
                                 <button
                                   title={isSubIgnored ? 'Mostrar' : 'Ocultar'}
-                                  onClick={() => setIgnoredSubNums(prev => { const s = new Set(prev); isSubIgnored ? s.delete(num) : s.add(num); return s; })}
+                                  onClick={() => setIgnoredSubNums(prev => {
+                                    const s = new Set(prev);
+                                    // cascade: affect this num and all descendants
+                                    const affected = subNums.filter(n => n === num || n.startsWith(num + '.'));
+                                    isSubIgnored ? affected.forEach(n => s.delete(n)) : affected.forEach(n => s.add(n));
+                                    return s;
+                                  })}
                                   className="h-4 w-4 flex items-center justify-center mx-auto text-muted-foreground/30 hover:text-muted-foreground transition-colors">
                                   {isSubIgnored ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
                                 </button>

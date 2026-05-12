@@ -2,16 +2,16 @@ import { useState, useMemo, useRef, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useApp } from '@/contexts/AppContext';
 import { supabase } from '@/lib/supabase';
-import { TarefaCusto, Fracao, Material, MaoDeObra, TemplateDivisao, TemplateTarefa, TIPOS_MATERIAL, TIPOS_DIVISAO, Divisao } from '@/types/project';
+import { TarefaCusto, Fracao, Material, MaoDeObra, TemplateDivisao, TemplateTarefa, TIPOS_MATERIAL, TIPOS_DIVISAO, Divisao, ProjetoUnidade } from '@/types/project';
 import { calcularCustoTarefa, calcularResumo, gerarTarefas, getTemplatesSubcapitulo, normalizarSubcapitulo, MULTIPLICADORES_QUALIDADE, TemplateTask } from '@/lib/wbs';
-import { formatCurrency, v4 } from '@/lib/utils';
+import { formatCurrency, v4, cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Card, CardContent } from '@/components/ui/card';
-import { ArrowLeft, ChevronDown, ChevronRight, ChevronLeft, Search, ImagePlus, X, Plus, Trash2, Pencil, Check, ZoomIn, Bookmark, BookmarkCheck, FileDown, FolderOpen, BarChart2, Layers } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ChevronRight, ChevronLeft, Search, ImagePlus, X, Plus, Trash2, Pencil, Check, ZoomIn, Bookmark, BookmarkCheck, FileDown, FolderOpen, BarChart2, Layers, Save } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import CostDistributionChart from '@/components/CostDistributionChart';
 import MaterialPicker from '@/components/MaterialPicker';
@@ -202,7 +202,13 @@ export default function ProjetoDetalhe() {
         {/* Características do Projeto */}
         <Card className="mb-4 bg-slate-50/60">
           <CardContent className="py-3 px-4">
-            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-3">Características do Projeto</p>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Características do Projeto</p>
+              <Button size="sm" variant="outline" className="h-6 text-xs gap-1 px-2"
+                onClick={() => atualizarProjeto(projeto)}>
+                <Save className="h-3 w-3" /> Guardar
+              </Button>
+            </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
               {([
                 ['m2AcimaSolo',    'm² acima do solo'],
@@ -221,7 +227,7 @@ export default function ProjetoDetalhe() {
                 </div>
               ))}
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
               {([
                 ['m2AreasComuns',   'Áreas comuns (m²)'],
                 ['m2Circulacao',    'Circulação (m²)'],
@@ -238,6 +244,39 @@ export default function ProjetoDetalhe() {
                   />
                 </div>
               ))}
+            </div>
+
+            {/* Frações / Unidades */}
+            <div className="border-t pt-3">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Frações / Unidades</p>
+                <Button size="sm" variant="ghost" className="h-6 text-xs gap-1 px-2"
+                  onClick={() => atualizarProjeto({ ...projeto, unidades: [...(projeto.unidades ?? []), { id: v4(), nome: '', m2: 0 }] })}>
+                  <Plus className="h-3 w-3" /> Adicionar
+                </Button>
+              </div>
+              {(!projeto.unidades || projeto.unidades.length === 0) ? (
+                <p className="text-xs text-muted-foreground italic">Sem frações. Clique em Adicionar.</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {projeto.unidades.map((u, ui) => (
+                    <div key={u.id} className="flex items-center gap-2">
+                      <input className="h-7 text-xs flex-1 rounded-md border border-input bg-background px-2"
+                        placeholder="Nome (ex: T2 – Piso 1)"
+                        value={u.nome}
+                        onChange={e => atualizarProjeto({ ...projeto, unidades: (projeto.unidades ?? []).map((x, i) => i === ui ? { ...x, nome: e.target.value } : x) })} />
+                      <input className="h-7 text-xs w-20 text-right rounded-md border border-input bg-background px-2" type="number" min={0} placeholder="m²"
+                        value={u.m2 || ''}
+                        onChange={e => atualizarProjeto({ ...projeto, unidades: (projeto.unidades ?? []).map((x, i) => i === ui ? { ...x, m2: parseFloat(e.target.value) || 0 } : x) })} />
+                      <span className="text-xs text-muted-foreground w-4 shrink-0">m²</span>
+                      <button className="h-6 w-6 rounded flex items-center justify-center text-muted-foreground hover:text-red-600 shrink-0"
+                        onClick={() => atualizarProjeto({ ...projeto, unidades: (projeto.unidades ?? []).filter((_, i) => i !== ui) })}>
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
