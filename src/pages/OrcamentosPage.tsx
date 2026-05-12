@@ -2824,9 +2824,13 @@ export default function OrcamentosPage() {
           const versoesDispFrac = [...new Set(projsSel.map(p => p.versao).filter(Boolean))].sort(sortVersao);
           const latestVersaoFrac = versoesDispFrac.at(-1);
           const versaoEfetiva = fracaoVersao === '__latest__' ? (latestVersaoFrac ?? null) : fracaoVersao;
-          const refTotais = versaoEfetiva
-            ? totais.filter(t => t.proj.versao === versaoEfetiva).map(t => t.total)
-            : totaisVals;
+          // Adjusted total: respects hidden chapters and sub-chapters
+          const activeCapsAdj = allCaps.filter(cap => !ignoredCaps.has(cap));
+          const adjTotalFrac = (p: Projeto) => activeCapsAdj.reduce((sum, cap) => sum + getAdjustedCapVal(p, cap), 0);
+          const refProjsSel = versaoEfetiva
+            ? projsSel.filter(p => p.versao === versaoEfetiva)
+            : projsSel;
+          const refTotais = refProjsSel.map(adjTotalFrac);
           const refTotal = refTotais.length > 0 ? refTotais.reduce((s, v) => s + v, 0) / refTotais.length : 0;
           if (refTotal === 0) return null;
           const custoM2 = refTotal / totalFracM2;
