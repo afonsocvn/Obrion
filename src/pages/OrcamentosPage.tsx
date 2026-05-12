@@ -91,6 +91,12 @@ interface Projeto {
   cenarioConfig?: CenarioConfig;
 }
 
+interface OrcamentoFracao {
+  id: string;
+  nome: string;   // e.g. "Fração A", "T2 – Piso 1"
+  m2: number;
+}
+
 interface Orcamento {
   id: string; nome: string; criadoEm: string; projetos: Projeto[];
   m2AcimaSolo: number; m2AbaixoSolo: number; numApartamentos: number;
@@ -98,6 +104,7 @@ interface Orcamento {
   m2AreasTecnicas: number; m2Terracos: number;
   projetoDefault: string | null;
   projetoId: string | null;
+  fracoes: OrcamentoFracao[];
 }
 
 interface FilePendente {
@@ -117,7 +124,7 @@ function loadOrcamentosLS(): Orcamento[] {
     return raw.map((o: Orcamento) => ({
       m2AcimaSolo: 0, m2AbaixoSolo: 0, numApartamentos: 0,
       m2Retalho: 0, m2AreasComuns: 0, m2Circulacao: 0, m2AreasTecnicas: 0, m2Terracos: 0,
-      projetoDefault: null, projetoId: null,
+      projetoDefault: null, projetoId: null, fracoes: [],
       ...o,
       projetos: (o.projetos ?? []).map((p: Projeto) => ({ versao: '', tipo: 'orcamento' as const, ...p })),
     }));
@@ -136,6 +143,7 @@ type DbOrcamento = {
   m2_retalho: number; m2_areas_comuns: number; m2_circulacao: number;
   m2_areas_tecnicas: number; m2_terracos: number;
   projeto_id: string | null;
+  fracoes: OrcamentoFracao[] | null;
 };
 type DbProjeto  = { id: string; orcamento_id: string; nome: string; versao: string; criado_em: string; tipo: string; cenario_config: CenarioConfig | null; };
 type DbFicheiro = { id: string; projeto_id: string; nome: string; folha: string; carregado_em: string; total: number; linhas: LinhaOrcamento[]; };
@@ -149,6 +157,7 @@ function orcToRow(o: Orcamento, userId: string, workspaceId: string | null): DbO
     m2_areas_tecnicas: o.m2AreasTecnicas, m2_terracos: o.m2Terracos,
     projeto_default: o.projetoDefault ?? null,
     projeto_id: o.projetoId ?? null,
+    fracoes: o.fracoes?.length ? o.fracoes : null,
   };
 }
 function projToRow(p: Projeto, orcId: string): DbProjeto {
@@ -165,7 +174,7 @@ function ficToRow(f: ExcelFicheiro, projId: string): DbFicheiro {
 async function loadOrcamentosDB(userId: string, workspaceId: string | null): Promise<Orcamento[]> {
   const q = supabase
     .from('orcamentos')
-    .select(`id,nome,criado_em,m2_acima_solo,m2_abaixo_solo,num_apartamentos,m2_retalho,m2_areas_comuns,m2_circulacao,m2_areas_tecnicas,m2_terracos,projeto_id,projeto_default,
+    .select(`id,nome,criado_em,m2_acima_solo,m2_abaixo_solo,num_apartamentos,m2_retalho,m2_areas_comuns,m2_circulacao,m2_areas_tecnicas,m2_terracos,projeto_id,projeto_default,fracoes,
       orcamento_projetos(id,nome,versao,criado_em,tipo,cenario_config,
         orcamento_ficheiros(id,nome,folha,carregado_em,total,linhas)
       )`);
@@ -181,6 +190,7 @@ async function loadOrcamentosDB(userId: string, workspaceId: string | null): Pro
     m2AreasTecnicas: row.m2_areas_tecnicas ?? 0, m2Terracos: row.m2_terracos ?? 0,
     projetoDefault: row.projeto_default ?? null,
     projetoId: row.projeto_id ?? null,
+    fracoes: (row.fracoes ?? []) as OrcamentoFracao[],
     projetos: (row.orcamento_projetos ?? []).map((p: any) => ({
       id: p.id, nome: p.nome, versao: p.versao ?? '', criadoEm: p.criado_em,
       tipo: (p.tipo ?? 'orcamento') as 'orcamento' | 'cenario',
@@ -813,7 +823,7 @@ type View = 'lista' | 'orcamento' | 'projeto' | 'comparar' | 'comparar-orc' | 'b
 export default function OrcamentosPage() {
   const { user }                    = useAuth();
   const { activeWorkspace }         = useWorkspace();
-  const { projetos: _allProjetos }  = useApp();
+  const { projetos: _allProjetos, atualizarProjeto } = useApp();
   const topProjetos = _allProjetos.filter(p => p.tipo === 'projeto');
   const workspaceId                 = activeWorkspace?.id ?? null;
 
@@ -930,12 +940,17 @@ export default function OrcamentosPage() {
   const [caracDraft, setCaracDraft] = useState(emptyCarac);
   useEffect(() => {
     const o = orcamentos.find(x => x.id === selectedOrcId);
-    if (o) setCaracDraft({ m2AcimaSolo: o.m2AcimaSolo, m2AbaixoSolo: o.m2AbaixoSolo, numApartamentos: o.numApartamentos, m2Retalho: o.m2Retalho, m2AreasComuns: o.m2AreasComuns, m2Circulacao: o.m2Circulacao, m2AreasTecnicas: o.m2AreasTecnicas, m2Terracos: o.m2Terracos });
+    if (!o) return;
+    // If linked to a project, use the project's m² values as source of truth
+    const linkedP = o.projetoId ? topProjetos.find(p => p.id === o.projetoId) : null;
+    const src = linkedP ?? o;
+    setCaracDraft({ m2AcimaSolo: src.m2AcimaSolo ?? 0, m2AbaixoSolo: src.m2AbaixoSolo ?? 0, numApartamentos: src.numApartamentos ?? 0, m2Retalho: src.m2Retalho ?? 0, m2AreasComuns: src.m2AreasComuns ?? 0, m2Circulacao: src.m2Circulacao ?? 0, m2AreasTecnicas: src.m2AreasTecnicas ?? 0, m2Terracos: src.m2Terracos ?? 0 });
   }, [selectedOrcId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Comparison controls
   const [expandedCaps, setExpandedCaps]         = useState<Set<string>>(new Set());
   const [ignoredCaps, setIgnoredCaps]           = useState<Set<string>>(new Set());
+  const [ignoredSubNums, setIgnoredSubNums]     = useState<Set<string>>(new Set());
   const [compMode, setCompMode]                 = useState<'single' | 'multi'>('single');
   const [compVersoes, setCompVersoes]           = useState<Set<string>>(new Set());
   const [compOrcExcluded, setCompOrcExcluded]   = useState<Set<string>>(new Set());
@@ -1049,7 +1064,7 @@ export default function OrcamentosPage() {
       id: v4(), nome, criadoEm: new Date().toISOString(), projetos: [],
       m2AcimaSolo: 0, m2AbaixoSolo: 0, numApartamentos: 0,
       m2Retalho: 0, m2AreasComuns: 0, m2Circulacao: 0, m2AreasTecnicas: 0, m2Terracos: 0,
-      projetoDefault: null, projetoId: novoOrcProjetoId || null,
+      projetoDefault: null, projetoId: novoOrcProjetoId || null, fracoes: [],
     };
     updateOrcamentos(prev => [novo, ...prev]);
     setNovoOrcNome(''); setNovoOrcProjetoId(''); setShowNovoOrc(false);
@@ -2451,6 +2466,7 @@ export default function OrcamentosPage() {
 
                         {/* Article rows */}
                         {isExp && subNums.map(num => {
+                          const isSubIgnored = ignoredSubNums.has(num);
                           const arts     = projsSel.map(p => getLinhaTotal(p, num));
                           const desc     = arts.find(a => a?.descricao)?.descricao ?? '';
                           const unid     = arts.find(a => a?.unidade)?.unidade ?? '';
@@ -2462,8 +2478,15 @@ export default function OrcamentosPage() {
                           const artDiff    = isDiff ? artVals[1] - artVals[0] : 0;
                           const artDiffPct = isDiff && artVals[0] > 0 ? (artDiff / artVals[0]) * 100 : null;
                           return (
-                            <tr key={`${cap}-${num}`} className="border-b bg-white hover:bg-blue-50/20">
-                              <td className="px-1 py-1" />
+                            <tr key={`${cap}-${num}`} className={cn('border-b hover:bg-blue-50/20', isSubIgnored ? 'opacity-30 bg-slate-50' : 'bg-white')}>
+                              <td className="px-1 py-1 text-center">
+                                <button
+                                  title={isSubIgnored ? 'Mostrar' : 'Ocultar'}
+                                  onClick={() => setIgnoredSubNums(prev => { const s = new Set(prev); isSubIgnored ? s.delete(num) : s.add(num); return s; })}
+                                  className="h-4 w-4 flex items-center justify-center mx-auto text-muted-foreground/30 hover:text-muted-foreground transition-colors">
+                                  {isSubIgnored ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
+                                </button>
+                              </td>
                               <td className="px-1 py-1" />
                               <td className="py-1.5 font-mono text-[11px] text-blue-700/70 whitespace-nowrap"
                                 style={{ paddingLeft: `${indent + 12}px` }}>{num}</td>
@@ -2971,17 +2994,36 @@ export default function OrcamentosPage() {
         </div>
 
         {/* Características do projeto */}
+        {(() => {
+          const linkedProj = selectedOrc.projetoId ? topProjetos.find(p => p.id === selectedOrc.projetoId) : null;
+          const isSynced   = !!linkedProj;
+
+          const saveCarac = () => {
+            // Always save to orcamento
+            updateOrcamentos(prev => prev.map(o => o.id === selectedOrc.id ? { ...o, ...caracDraft } : o));
+            // If linked to a project, also update the project's m² fields
+            if (linkedProj) {
+              atualizarProjeto({ ...linkedProj, ...caracDraft });
+            }
+            toast.success('Características guardadas');
+          };
+
+          return (
         <Card className="mb-5">
           <CardHeader className="pb-2 pt-4 px-5">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
-                Características do Projeto
-              </CardTitle>
-              <Button size="sm" className="h-7 text-xs gap-1.5" onClick={() => {
-                updateOrcamentos(prev => prev.map(o => o.id === selectedOrc.id ? { ...o, ...caracDraft } : o));
-                toast.success('Características guardadas');
-              }}>
+              <div>
+                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                  <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
+                  Características do Projeto
+                </CardTitle>
+                {isSynced && (
+                  <p className="text-[10px] text-blue-600 mt-0.5 flex items-center gap-1">
+                    <Link2 className="h-3 w-3" /> Sincronizado com "{linkedProj.nome}"
+                  </p>
+                )}
+              </div>
+              <Button size="sm" className="h-7 text-xs gap-1.5" onClick={saveCarac}>
                 <Save className="h-3 w-3" /> Guardar
               </Button>
             </div>
@@ -3074,8 +3116,76 @@ export default function OrcamentosPage() {
                 </div>
               );
             })()}
+
+            {/* ── Frações ── */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Frações / Unidades</p>
+                <Button size="sm" variant="ghost" className="h-6 text-xs gap-1 px-2"
+                  onClick={() => updateOrcamentos(prev => prev.map(o => o.id === selectedOrc.id
+                    ? { ...o, fracoes: [...(o.fracoes ?? []), { id: v4(), nome: '', m2: 0 }] }
+                    : o))}>
+                  <Plus className="h-3 w-3" /> Adicionar fração
+                </Button>
+              </div>
+              {(!selectedOrc.fracoes || selectedOrc.fracoes.length === 0) ? (
+                <p className="text-xs text-muted-foreground italic">Sem frações definidas.</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {selectedOrc.fracoes.map((fr, fi) => (
+                    <div key={fr.id} className="flex items-center gap-2">
+                      <Input className="h-7 text-xs flex-1" placeholder="Nome da fração (ex: T2 – Piso 1)"
+                        value={fr.nome}
+                        onChange={e => updateOrcamentos(prev => prev.map(o => o.id === selectedOrc.id
+                          ? { ...o, fracoes: o.fracoes.map((f, i) => i === fi ? { ...f, nome: e.target.value } : f) }
+                          : o))} />
+                      <Input className="h-7 text-xs w-24 text-right" type="number" min={0} placeholder="m²"
+                        value={fr.m2 || ''}
+                        onChange={e => updateOrcamentos(prev => prev.map(o => o.id === selectedOrc.id
+                          ? { ...o, fracoes: o.fracoes.map((f, i) => i === fi ? { ...f, m2: parseFloat(e.target.value) || 0 } : f) }
+                          : o))} />
+                      <span className="text-xs text-muted-foreground w-6 text-right shrink-0">m²</span>
+                      <button className="h-6 w-6 rounded flex items-center justify-center text-muted-foreground hover:text-red-600 hover:bg-red-50 shrink-0"
+                        onClick={() => updateOrcamentos(prev => prev.map(o => o.id === selectedOrc.id
+                          ? { ...o, fracoes: o.fracoes.filter((_, i) => i !== fi) }
+                          : o))}>
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Cost per fraction */}
+              {selectedOrc.fracoes?.length > 0 && totalAtivo > 0 && (() => {
+                const totalFracM2 = selectedOrc.fracoes.reduce((s, f) => s + f.m2, 0);
+                if (totalFracM2 === 0) return null;
+                return (
+                  <div className="mt-3 pt-3 border-t">
+                    <p className="text-[10px] text-muted-foreground mb-2 uppercase tracking-wide font-semibold">Custo por fração (média versão activa)</p>
+                    <div className="space-y-1">
+                      {selectedOrc.fracoes.filter(f => f.m2 > 0).map(fr => {
+                        const custo = Math.round((fr.m2 / totalFracM2) * totalAtivo);
+                        return (
+                          <div key={fr.id} className="flex items-center justify-between text-xs">
+                            <span className="text-muted-foreground truncate">{fr.nome || 'Sem nome'} <span className="text-[10px]">({fr.m2} m²)</span></span>
+                            <span className="font-semibold tabular-nums">{formatCurrency(custo)}</span>
+                          </div>
+                        );
+                      })}
+                      <div className="flex items-center justify-between text-xs pt-1 border-t font-semibold">
+                        <span>Total ({totalFracM2} m²)</span>
+                        <span className="tabular-nums">{formatCurrency(totalAtivo)}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
           </CardContent>
         </Card>
+          ); // closes return(
+        })(/* closes characteristics IIFE */)}
 
         {/* Orçamentos list */}
         <div className="flex items-center justify-between mb-3">

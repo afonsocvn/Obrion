@@ -16,7 +16,23 @@
       "Bash(git log *)",
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(git checkout *)",
+      "Bash(rtk grep *)",
+      "PowerShell(Get-Content *)",
+      "Bash(rtk wc *)",
+      "Bash(rtk read *)",
+      "PowerShell(npm run *)",
+      "Bash(rtk tsc *)",
+      "Bash(rtk npx *)",
+      "Bash(timeout 6)",
+      "Bash(Start-Sleep -Seconds 5)",
+      "Bash(Get-Content \"C:\\\\Users\\\\Afonso\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Afonso-Desktop-PRD-Construpan\\\\4081e210-8203-42bf-ac7c-5b6019a25882\\\\tasks\\\\bepep0kk6.output\")",
+      "PowerShell(netstat *)",
+      "Bash(rtk git *)",
+      "PowerShell(Get-NetTCPConnection *)",
+      "PowerShell(Stop-Process *)",
+      "Bash(npm ls *)"
     ]
   }
 }
