@@ -965,6 +965,7 @@ export default function OrcamentosPage() {
   const [compVersoes, setCompVersoes]           = useState<Set<string>>(new Set());
   const [compOrcExcluded, setCompOrcExcluded]   = useState<Set<string>>(new Set());
   const [compM2Field, setCompM2Field]           = useState<string>('');
+  const [fracaoVersao, setFracaoVersao]         = useState<string>('__latest__');
 
   // Saved analyses
   const getAnaliseKey = (orcId: string) => `analises_${orcId}`;
@@ -2819,23 +2820,46 @@ export default function OrcamentosPage() {
           if (fracoes.length === 0) return null;
           const totalFracM2 = fracoes.reduce((s, f) => s + f.m2, 0);
           if (totalFracM2 === 0) return null;
-          // Use the latest version among the selected projects
-          const latestVersaoProjsSel = [...new Set(projsSel.map(p => p.versao).filter(Boolean))].sort(sortVersao).at(-1);
-          const latestTotais = latestVersaoProjsSel
-            ? totais.filter(t => t.proj.versao === latestVersaoProjsSel).map(t => t.total)
+          // Build list of all versions available in projsSel
+          const versoesDispFrac = [...new Set(projsSel.map(p => p.versao).filter(Boolean))].sort(sortVersao);
+          const latestVersaoFrac = versoesDispFrac.at(-1);
+          const versaoEfetiva = fracaoVersao === '__latest__' ? (latestVersaoFrac ?? null) : fracaoVersao;
+          const refTotais = versaoEfetiva
+            ? totais.filter(t => t.proj.versao === versaoEfetiva).map(t => t.total)
             : totaisVals;
-          const refTotal = latestTotais.length > 0 ? latestTotais.reduce((s, v) => s + v, 0) / latestTotais.length : 0;
+          const refTotal = refTotais.length > 0 ? refTotais.reduce((s, v) => s + v, 0) / refTotais.length : 0;
           if (refTotal === 0) return null;
           const custoM2 = refTotal / totalFracM2;
           const hasQtd = fracoes.some(f => (f.quantidade ?? 1) > 1);
           return (
             <Card className="mb-6">
               <CardHeader className="pb-2 pt-4 px-5">
-                <CardTitle className="text-sm font-semibold">Custo por Fração</CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm font-semibold">Custo por Fração</CardTitle>
+                  {versoesDispFrac.length > 1 && (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] text-muted-foreground">Versão:</span>
+                      <div className="flex gap-1">
+                        {versoesDispFrac.map(v => (
+                          <button key={v}
+                            onClick={() => setFracaoVersao(v === latestVersaoFrac && fracaoVersao === '__latest__' ? '__latest__' : v)}
+                            className={cn(
+                              'px-2 py-0.5 rounded text-[11px] font-medium border transition-colors',
+                              (fracaoVersao === '__latest__' ? v === latestVersaoFrac : fracaoVersao === v)
+                                ? 'bg-primary text-primary-foreground border-primary'
+                                : 'bg-background text-muted-foreground border-input hover:border-primary/50'
+                            )}>
+                            {v}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </CardHeader>
               <CardContent className="pb-4 px-5">
                 <p className="text-[11px] text-muted-foreground mb-3">
-                  Base: {formatCurrency(Math.round(refTotal))} ({latestVersaoProjsSel ?? 'versão activa'}) · {formatCurrency(Math.round(custoM2))}/m² · {totalFracM2} m² total
+                  Base: {formatCurrency(Math.round(refTotal))} ({versaoEfetiva ?? 'versão activa'}) · {formatCurrency(Math.round(custoM2))}/m² · {totalFracM2} m² total
                 </p>
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs border-collapse">
