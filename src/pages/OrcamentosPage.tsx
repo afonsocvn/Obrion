@@ -938,14 +938,23 @@ export default function OrcamentosPage() {
   // Local draft for orcamento characteristics (avoid auto-saving on every keystroke)
   const emptyCarac = { m2AcimaSolo: 0, m2AbaixoSolo: 0, numApartamentos: 0, m2Retalho: 0, m2AreasComuns: 0, m2Circulacao: 0, m2AreasTecnicas: 0, m2Terracos: 0 };
   const [caracDraft, setCaracDraft] = useState(emptyCarac);
+  // Compute a stable key from the linked project's m² values so the draft
+  // re-initialises whenever the project data changes (e.g. loads from Supabase)
+  const _linkedProjForDraft = selectedOrcId
+    ? (() => { const o = orcamentos.find(x => x.id === selectedOrcId); return o?.projetoId ? topProjetos.find(p => p.id === o.projetoId) : null; })()
+    : null;
+  const _caracSyncKey = `${selectedOrcId}|${_linkedProjForDraft
+    ? [_linkedProjForDraft.m2AcimaSolo, _linkedProjForDraft.m2AbaixoSolo, _linkedProjForDraft.numApartamentos,
+       _linkedProjForDraft.m2Retalho, _linkedProjForDraft.m2AreasComuns, _linkedProjForDraft.m2Circulacao,
+       _linkedProjForDraft.m2AreasTecnicas, _linkedProjForDraft.m2Terracos].join(',')
+    : 'none'}`;
   useEffect(() => {
     const o = orcamentos.find(x => x.id === selectedOrcId);
     if (!o) return;
-    // If linked to a project, use the project's m² values as source of truth
     const linkedP = o.projetoId ? topProjetos.find(p => p.id === o.projetoId) : null;
     const src = linkedP ?? o;
     setCaracDraft({ m2AcimaSolo: src.m2AcimaSolo ?? 0, m2AbaixoSolo: src.m2AbaixoSolo ?? 0, numApartamentos: src.numApartamentos ?? 0, m2Retalho: src.m2Retalho ?? 0, m2AreasComuns: src.m2AreasComuns ?? 0, m2Circulacao: src.m2Circulacao ?? 0, m2AreasTecnicas: src.m2AreasTecnicas ?? 0, m2Terracos: src.m2Terracos ?? 0 });
-  }, [selectedOrcId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [_caracSyncKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Comparison controls
   const [expandedCaps, setExpandedCaps]         = useState<Set<string>>(new Set());
@@ -2797,6 +2806,72 @@ export default function OrcamentosPage() {
             </CardContent>
           </Card>
         )}
+
+        {/* ── Custo por Fração ── */}
+        {temProjsSel && (() => {
+          // Fractions: use proposta's own fracoes, or fall back to linked project's unidades
+          const linkedProjAna = selectedOrc.projetoId ? topProjetos.find(p => p.id === selectedOrc.projetoId) : null;
+          const fracoes: { id: string; nome: string; m2: number }[] =
+            (selectedOrc.fracoes?.length ? selectedOrc.fracoes : null) ??
+            (linkedProjAna?.unidades?.length ? linkedProjAna.unidades : null) ??
+            [];
+          if (fracoes.length === 0) return null;
+          const totalFracM2 = fracoes.reduce((s, f) => s + f.m2, 0);
+          if (totalFracM2 === 0) return null;
+          // Use the mean of the active (latest) versions as the reference total
+          const refTotal = totaisVals.length > 0 ? totaisVals.reduce((s, v) => s + v, 0) / totaisVals.length : 0;
+          if (refTotal === 0) return null;
+          const custoM2 = refTotal / totalFracM2;
+          return (
+            <Card className="mb-6">
+              <CardHeader className="pb-2 pt-4 px-5">
+                <CardTitle className="text-sm font-semibold">Custo por Fração</CardTitle>
+              </CardHeader>
+              <CardContent className="pb-4 px-5">
+                <p className="text-[11px] text-muted-foreground mb-3">
+                  Base: {formatCurrency(Math.round(refTotal))} · {formatCurrency(Math.round(custoM2))}/m² · {totalFracM2} m² total
+                </p>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs border-collapse">
+                    <thead>
+                      <tr className="border-b text-muted-foreground">
+                        <th className="px-3 py-2 text-left font-medium">Fração</th>
+                        <th className="px-3 py-2 text-right font-medium">m²</th>
+                        <th className="px-3 py-2 text-right font-medium">% área</th>
+                        <th className="px-3 py-2 text-right font-medium">Custo estimado</th>
+                        <th className="px-3 py-2 text-right font-medium">€/m²</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {fracoes.filter(f => f.m2 > 0).map(f => {
+                        const custo = Math.round((f.m2 / totalFracM2) * refTotal);
+                        const pctArea = (f.m2 / totalFracM2) * 100;
+                        return (
+                          <tr key={f.id} className="border-b hover:bg-muted/10">
+                            <td className="px-3 py-2 font-medium">{f.nome || '—'}</td>
+                            <td className="px-3 py-2 text-right tabular-nums">{f.m2} m²</td>
+                            <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{pctArea.toFixed(1)}%</td>
+                            <td className="px-3 py-2 text-right tabular-nums font-semibold">{formatCurrency(custo)}</td>
+                            <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{formatCurrency(Math.round(custoM2))}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot className="border-t-2 bg-muted/30">
+                      <tr>
+                        <td className="px-3 py-2 font-bold">Total</td>
+                        <td className="px-3 py-2 text-right tabular-nums font-bold">{totalFracM2} m²</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">100%</td>
+                        <td className="px-3 py-2 text-right tabular-nums font-bold">{formatCurrency(Math.round(refTotal))}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{formatCurrency(Math.round(custoM2))}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })()}
 
         {/* Dialog: Guardar análise */}
         <Dialog open={showGravarAnalise} onOpenChange={setShowGravarAnalise}>
