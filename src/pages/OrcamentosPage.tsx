@@ -1822,11 +1822,23 @@ export default function OrcamentosPage() {
     const allCapsSet = new Set<string>();
     projsSel.forEach(p => getCapTotais(p).forEach(c => allCapsSet.add(c.numero)));
     const allCaps    = Array.from(allCapsSet).sort((a, b) => parseFloat(a) - parseFloat(b));
-    // Helper: chapter total adjusted for ignored sub-chapters
+    // Helper: chapter total adjusted for ignored sub-chapters.
+    // Only subtract the "root" ignored items — if "1.1" is ignored, don't also subtract
+    // "1.1.1" / "1.1.2" because those are already included in "1.1"'s value.
     const getAdjustedCapVal = (p: Projeto, cap: string) => {
       const base = getCapTotais(p).find(c => c.numero === cap)?.total ?? 0;
+      if (ignoredSubNums.size === 0) return base;
+      const capDepth = cap.split('.').length;
       const ignoredDeduct = Array.from(ignoredSubNums)
-        .filter(n => n.startsWith(cap + '.'))
+        .filter(n => {
+          if (!n.startsWith(cap + '.')) return false;
+          // Only deduct if no ancestor (between cap and n) is also in ignoredSubNums
+          const parts = n.split('.');
+          for (let i = capDepth + 1; i < parts.length; i++) {
+            if (ignoredSubNums.has(parts.slice(0, i).join('.'))) return false;
+          }
+          return true;
+        })
         .reduce((s, n) => s + (getLinhaTotal(p, n)?.total ?? 0), 0);
       return Math.max(0, base - ignoredDeduct);
     };
