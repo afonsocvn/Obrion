@@ -251,7 +251,7 @@ export default function ProjetoDetalhe() {
               <div className="flex items-center justify-between mb-2">
                 <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Frações / Unidades</p>
                 <Button size="sm" variant="ghost" className="h-6 text-xs gap-1 px-2"
-                  onClick={() => atualizarProjeto({ ...projeto, unidades: [...(projeto.unidades ?? []), { id: v4(), nome: '', m2: 0 }] })}>
+                  onClick={() => atualizarProjeto({ ...projeto, unidades: [...(projeto.unidades ?? []), { id: v4(), nome: '', m2: 0, quantidade: 1 }] })}>
                   <Plus className="h-3 w-3" /> Adicionar
                 </Button>
               </div>
@@ -265,10 +265,14 @@ export default function ProjetoDetalhe() {
                         placeholder="Nome (ex: T2 – Piso 1)"
                         value={u.nome}
                         onChange={e => atualizarProjeto({ ...projeto, unidades: (projeto.unidades ?? []).map((x, i) => i === ui ? { ...x, nome: e.target.value } : x) })} />
-                      <input className="h-7 text-xs w-20 text-right rounded-md border border-input bg-background px-2" type="number" min={0} placeholder="m²"
+                      <input className="h-7 text-xs w-16 text-right rounded-md border border-input bg-background px-2" type="number" min={0} placeholder="m²"
                         value={u.m2 || ''}
                         onChange={e => atualizarProjeto({ ...projeto, unidades: (projeto.unidades ?? []).map((x, i) => i === ui ? { ...x, m2: parseFloat(e.target.value) || 0 } : x) })} />
-                      <span className="text-xs text-muted-foreground w-4 shrink-0">m²</span>
+                      <span className="text-xs text-muted-foreground shrink-0">m²</span>
+                      <input className="h-7 text-xs w-14 text-right rounded-md border border-input bg-background px-2" type="number" min={1} placeholder="un."
+                        value={u.quantidade ?? 1}
+                        onChange={e => atualizarProjeto({ ...projeto, unidades: (projeto.unidades ?? []).map((x, i) => i === ui ? { ...x, quantidade: parseInt(e.target.value) || 1 } : x) })} />
+                      <span className="text-xs text-muted-foreground shrink-0">un.</span>
                       <button className="h-6 w-6 rounded flex items-center justify-center text-muted-foreground hover:text-red-600 shrink-0"
                         onClick={() => atualizarProjeto({ ...projeto, unidades: (projeto.unidades ?? []).filter((_, i) => i !== ui) })}>
                         <X className="h-3 w-3" />

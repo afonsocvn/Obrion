@@ -83,6 +83,7 @@ export interface ProjetoUnidade {
   id: string;
   nome: string;
   m2: number;
+  quantidade?: number;
 }
 
 export interface Projeto {

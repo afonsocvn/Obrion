@@ -95,6 +95,7 @@ interface OrcamentoFracao {
   id: string;
   nome: string;   // e.g. "Fração A", "T2 – Piso 1"
   m2: number;
+  quantidade?: number; // number of units of this fraction type
 }
 
 interface Orcamento {
@@ -2811,7 +2812,7 @@ export default function OrcamentosPage() {
         {temProjsSel && (() => {
           // Fractions: use proposta's own fracoes, or fall back to linked project's unidades
           const linkedProjAna = selectedOrc.projetoId ? topProjetos.find(p => p.id === selectedOrc.projetoId) : null;
-          const fracoes: { id: string; nome: string; m2: number }[] =
+          const fracoes: { id: string; nome: string; m2: number; quantidade?: number }[] =
             (selectedOrc.fracoes?.length ? selectedOrc.fracoes : null) ??
             (linkedProjAna?.unidades?.length ? linkedProjAna.unidades : null) ??
             [];
@@ -2822,6 +2823,7 @@ export default function OrcamentosPage() {
           const refTotal = totaisVals.length > 0 ? totaisVals.reduce((s, v) => s + v, 0) / totaisVals.length : 0;
           if (refTotal === 0) return null;
           const custoM2 = refTotal / totalFracM2;
+          const hasQtd = fracoes.some(f => (f.quantidade ?? 1) > 1);
           return (
             <Card className="mb-6">
               <CardHeader className="pb-2 pt-4 px-5">
@@ -2837,8 +2839,10 @@ export default function OrcamentosPage() {
                       <tr className="border-b text-muted-foreground">
                         <th className="px-3 py-2 text-left font-medium">Fração</th>
                         <th className="px-3 py-2 text-right font-medium">m²</th>
+                        {hasQtd && <th className="px-3 py-2 text-right font-medium">Unidades</th>}
                         <th className="px-3 py-2 text-right font-medium">% área</th>
                         <th className="px-3 py-2 text-right font-medium">Custo estimado</th>
+                        {hasQtd && <th className="px-3 py-2 text-right font-medium">Custo/unidade</th>}
                         <th className="px-3 py-2 text-right font-medium">€/m²</th>
                       </tr>
                     </thead>
@@ -2846,12 +2850,15 @@ export default function OrcamentosPage() {
                       {fracoes.filter(f => f.m2 > 0).map(f => {
                         const custo = Math.round((f.m2 / totalFracM2) * refTotal);
                         const pctArea = (f.m2 / totalFracM2) * 100;
+                        const qtd = f.quantidade && f.quantidade > 1 ? f.quantidade : null;
                         return (
                           <tr key={f.id} className="border-b hover:bg-muted/10">
                             <td className="px-3 py-2 font-medium">{f.nome || '—'}</td>
                             <td className="px-3 py-2 text-right tabular-nums">{f.m2} m²</td>
+                            {hasQtd && <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{qtd ?? 1}</td>}
                             <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{pctArea.toFixed(1)}%</td>
                             <td className="px-3 py-2 text-right tabular-nums font-semibold">{formatCurrency(custo)}</td>
+                            {hasQtd && <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{qtd ? formatCurrency(Math.round(custo / qtd)) : '—'}</td>}
                             <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{formatCurrency(Math.round(custoM2))}</td>
                           </tr>
                         );
@@ -2861,8 +2868,10 @@ export default function OrcamentosPage() {
                       <tr>
                         <td className="px-3 py-2 font-bold">Total</td>
                         <td className="px-3 py-2 text-right tabular-nums font-bold">{totalFracM2} m²</td>
+                        {hasQtd && <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{fracoes.reduce((s, f) => s + (f.quantidade ?? 1), 0)}</td>}
                         <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">100%</td>
                         <td className="px-3 py-2 text-right tabular-nums font-bold">{formatCurrency(Math.round(refTotal))}</td>
+                        {hasQtd && <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">—</td>}
                         <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{formatCurrency(Math.round(custoM2))}</td>
                       </tr>
                     </tfoot>
@@ -3226,7 +3235,7 @@ export default function OrcamentosPage() {
                 <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Frações / Unidades</p>
                 <Button size="sm" variant="ghost" className="h-6 text-xs gap-1 px-2"
                   onClick={() => updateOrcamentos(prev => prev.map(o => o.id === selectedOrc.id
-                    ? { ...o, fracoes: [...(o.fracoes ?? []), { id: v4(), nome: '', m2: 0 }] }
+                    ? { ...o, fracoes: [...(o.fracoes ?? []), { id: v4(), nome: '', m2: 0, quantidade: 1 }] }
                     : o))}>
                   <Plus className="h-3 w-3" /> Adicionar fração
                 </Button>
@@ -3237,17 +3246,23 @@ export default function OrcamentosPage() {
                 <div className="space-y-1.5">
                   {selectedOrc.fracoes.map((fr, fi) => (
                     <div key={fr.id} className="flex items-center gap-2">
-                      <Input className="h-7 text-xs flex-1" placeholder="Nome da fração (ex: T2 – Piso 1)"
+                      <Input className="h-7 text-xs flex-1" placeholder="Nome (ex: T2 – Piso 1)"
                         value={fr.nome}
                         onChange={e => updateOrcamentos(prev => prev.map(o => o.id === selectedOrc.id
                           ? { ...o, fracoes: o.fracoes.map((f, i) => i === fi ? { ...f, nome: e.target.value } : f) }
                           : o))} />
-                      <Input className="h-7 text-xs w-24 text-right" type="number" min={0} placeholder="m²"
+                      <Input className="h-7 text-xs w-20 text-right" type="number" min={0} placeholder="m²"
                         value={fr.m2 || ''}
                         onChange={e => updateOrcamentos(prev => prev.map(o => o.id === selectedOrc.id
                           ? { ...o, fracoes: o.fracoes.map((f, i) => i === fi ? { ...f, m2: parseFloat(e.target.value) || 0 } : f) }
                           : o))} />
-                      <span className="text-xs text-muted-foreground w-6 text-right shrink-0">m²</span>
+                      <span className="text-xs text-muted-foreground shrink-0">m²</span>
+                      <Input className="h-7 text-xs w-16 text-right" type="number" min={1} placeholder="un."
+                        value={fr.quantidade ?? 1}
+                        onChange={e => updateOrcamentos(prev => prev.map(o => o.id === selectedOrc.id
+                          ? { ...o, fracoes: o.fracoes.map((f, i) => i === fi ? { ...f, quantidade: parseInt(e.target.value) || 1 } : f) }
+                          : o))} />
+                      <span className="text-xs text-muted-foreground shrink-0">un.</span>
                       <button className="h-6 w-6 rounded flex items-center justify-center text-muted-foreground hover:text-red-600 hover:bg-red-50 shrink-0"
                         onClick={() => updateOrcamentos(prev => prev.map(o => o.id === selectedOrc.id
                           ? { ...o, fracoes: o.fracoes.filter((_, i) => i !== fi) }
@@ -3269,10 +3284,16 @@ export default function OrcamentosPage() {
                     <div className="space-y-1">
                       {selectedOrc.fracoes.filter(f => f.m2 > 0).map(fr => {
                         const custo = Math.round((fr.m2 / totalFracM2) * totalAtivo);
+                        const qtd = fr.quantidade && fr.quantidade > 1 ? fr.quantidade : null;
                         return (
                           <div key={fr.id} className="flex items-center justify-between text-xs">
-                            <span className="text-muted-foreground truncate">{fr.nome || 'Sem nome'} <span className="text-[10px]">({fr.m2} m²)</span></span>
-                            <span className="font-semibold tabular-nums">{formatCurrency(custo)}</span>
+                            <span className="text-muted-foreground truncate">
+                              {fr.nome || 'Sem nome'} <span className="text-[10px]">({fr.m2} m²{qtd ? ` × ${qtd}` : ''})</span>
+                            </span>
+                            <div className="flex flex-col items-end">
+                              <span className="font-semibold tabular-nums">{formatCurrency(custo)}</span>
+                              {qtd && <span className="text-[10px] text-muted-foreground tabular-nums">{formatCurrency(Math.round(custo / qtd))}/un.</span>}
+                            </div>
                           </div>
                         );
                       })}
