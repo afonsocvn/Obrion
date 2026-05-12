@@ -2819,8 +2819,12 @@ export default function OrcamentosPage() {
           if (fracoes.length === 0) return null;
           const totalFracM2 = fracoes.reduce((s, f) => s + f.m2, 0);
           if (totalFracM2 === 0) return null;
-          // Use the mean of the active (latest) versions as the reference total
-          const refTotal = totaisVals.length > 0 ? totaisVals.reduce((s, v) => s + v, 0) / totaisVals.length : 0;
+          // Use the latest version among the selected projects
+          const latestVersaoProjsSel = [...new Set(projsSel.map(p => p.versao).filter(Boolean))].sort(sortVersao).at(-1);
+          const latestTotais = latestVersaoProjsSel
+            ? totais.filter(t => t.proj.versao === latestVersaoProjsSel).map(t => t.total)
+            : totaisVals;
+          const refTotal = latestTotais.length > 0 ? latestTotais.reduce((s, v) => s + v, 0) / latestTotais.length : 0;
           if (refTotal === 0) return null;
           const custoM2 = refTotal / totalFracM2;
           const hasQtd = fracoes.some(f => (f.quantidade ?? 1) > 1);
@@ -2831,7 +2835,7 @@ export default function OrcamentosPage() {
               </CardHeader>
               <CardContent className="pb-4 px-5">
                 <p className="text-[11px] text-muted-foreground mb-3">
-                  Base: {formatCurrency(Math.round(refTotal))} · {formatCurrency(Math.round(custoM2))}/m² · {totalFracM2} m² total
+                  Base: {formatCurrency(Math.round(refTotal))} ({latestVersaoProjsSel ?? 'versão activa'}) · {formatCurrency(Math.round(custoM2))}/m² · {totalFracM2} m² total
                 </p>
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs border-collapse">
