@@ -72,6 +72,7 @@ interface CenarioConfig {
   capitulos: CenarioCapitulo[];
   projetosBase: string[];
   alteracoes: CenarioAlteracao[];
+  capitulosOcultos?: string[];
 }
 
 interface AnaliseGuardada {
@@ -343,8 +344,11 @@ function getCenarioCapituloTotal(cap: CenarioCapitulo, alteracoes: CenarioAltera
 }
 function getProjetoTotal(p: Projeto): number {
   if (p.tipo === 'cenario' && p.cenarioConfig) {
-    const alt = p.cenarioConfig.alteracoes ?? [];
-    return p.cenarioConfig.capitulos.reduce((s, cap) => s + getCenarioCapituloTotal(cap, alt), 0);
+    const alt     = p.cenarioConfig.alteracoes ?? [];
+    const ocultos = new Set(p.cenarioConfig.capitulosOcultos ?? []);
+    return p.cenarioConfig.capitulos
+      .filter(cap => !ocultos.has(cap.numero))
+      .reduce((s, cap) => s + getCenarioCapituloTotal(cap, alt), 0);
   }
   const allLinhas = p.ficheiros.flatMap(f => f.linhas);
   if (allLinhas.length === 0) return p.ficheiros.reduce((s, f) => s + f.total, 0);
@@ -469,8 +473,10 @@ function getCapituloTotaisAll(proj: Projeto): CapTotal[] {
 
 function getCapituloTotais(proj: Projeto): CapTotal[] {
   if (proj.tipo === 'cenario' && proj.cenarioConfig) {
-    const alt = proj.cenarioConfig.alteracoes ?? [];
+    const alt     = proj.cenarioConfig.alteracoes ?? [];
+    const ocultos = new Set(proj.cenarioConfig.capitulosOcultos ?? []);
     return proj.cenarioConfig.capitulos
+      .filter(cap => !ocultos.has(cap.numero))
       .map(cap => ({ numero: cap.numero, descricao: cap.descricao, total: getCenarioCapituloTotal(cap, alt), nivel: 1 }))
       .sort((a, b) => parseFloat(a.numero) - parseFloat(b.numero));
   }
@@ -1042,6 +1048,7 @@ export default function OrcamentosPage() {
   // Cenario editor state (when viewing a cenario)
   const [cenarioEditCaps, setCenarioEditCaps]         = useState<CenarioCapitulo[]>([]);
   const [cenarioEditAlteracoes, setCenarioEditAlteracoes] = useState<CenarioAlteracao[]>([]);
+  const [cenarioEditOcultos, setCenarioEditOcultos]   = useState<Set<string>>(new Set());
 
   const toggleCapExpand = (cap: string) =>
     setExpandedCaps(prev => { const s = new Set(prev); s.has(cap) ? s.delete(cap) : s.add(cap); return s; });
@@ -1267,6 +1274,7 @@ export default function OrcamentosPage() {
     if (proj?.tipo === 'cenario' && proj.cenarioConfig) {
       setCenarioEditCaps(JSON.parse(JSON.stringify(proj.cenarioConfig.capitulos)));
       setCenarioEditAlteracoes(JSON.parse(JSON.stringify(proj.cenarioConfig.alteracoes ?? [])));
+      setCenarioEditOcultos(new Set(proj.cenarioConfig.capitulosOcultos ?? []));
     }
     setView('projeto');
   };
@@ -3680,13 +3688,22 @@ export default function OrcamentosPage() {
         {/* Cenario editor — replaces upload/files for cenario type */}
         {selectedProj.tipo === 'cenario' && selectedProj.cenarioConfig && (() => {
           const baseProjs = selectedOrc?.projetos.filter(p => p.tipo !== 'cenario' && selectedProj.cenarioConfig!.projetosBase.includes(p.id)) ?? [];
-          const editCaps = cenarioEditCaps.length > 0 ? cenarioEditCaps : selectedProj.cenarioConfig.capitulos;
-          const editAlt  = cenarioEditAlteracoes;
+          const editCaps   = cenarioEditCaps.length > 0 ? cenarioEditCaps : selectedProj.cenarioConfig.capitulos;
+          const editAlt    = cenarioEditAlteracoes;
+          const editOcultos = cenarioEditOcultos;
+
+          const toggleOculto = (num: string) =>
+            setCenarioEditOcultos(prev => { const s = new Set(prev); s.has(num) ? s.delete(num) : s.add(num); return s; });
 
           const saveCenario = () => {
             const updated: Projeto = {
               ...selectedProj,
-              cenarioConfig: { ...selectedProj.cenarioConfig!, capitulos: editCaps, alteracoes: editAlt },
+              cenarioConfig: {
+                ...selectedProj.cenarioConfig!,
+                capitulos: editCaps,
+                alteracoes: editAlt,
+                capitulosOcultos: [...editOcultos],
+              },
             };
             updateOrcamentos(prev => prev.map(o =>
               o.id === selectedOrc?.id ? { ...o, projetos: o.projetos.map(p => p.id === updated.id ? updated : p) } : o
@@ -3694,8 +3711,11 @@ export default function OrcamentosPage() {
             toast.success('Cenário guardado');
           };
 
-          const totalCenario = editCaps.reduce((s, c) => s + getCenarioCapituloTotal(c, editAlt), 0);
-          const totalAlteracoes = editAlt.reduce((s, a) => s + a.valor, 0);
+          const capsVisiveis = editCaps.filter(c => !editOcultos.has(c.numero));
+          const totalCenario = capsVisiveis.reduce((s, c) => s + getCenarioCapituloTotal(c, editAlt), 0);
+          const totalAlteracoes = editAlt
+            .filter(a => !editOcultos.has(a.capitulo.split('.')[0]))
+            .reduce((s, a) => s + a.valor, 0);
 
           // Use memoized subcap data (computed at component level)
           const { allSubcapsMap, allSelectableNums } = cenarioSubcaps;
@@ -3722,6 +3742,7 @@ export default function OrcamentosPage() {
                     onClick={() => {
                       setCenarioEditCaps(JSON.parse(JSON.stringify(selectedProj.cenarioConfig!.capitulos)));
                       setCenarioEditAlteracoes(JSON.parse(JSON.stringify(selectedProj.cenarioConfig!.alteracoes ?? [])));
+                      setCenarioEditOcultos(new Set(selectedProj.cenarioConfig!.capitulosOcultos ?? []));
                       toast.success('Cenário restaurado');
                     }}>Restaurar</Button>
                   <Button size="sm" className="h-7 text-xs gap-1.5" onClick={saveCenario}>
@@ -3760,6 +3781,8 @@ export default function OrcamentosPage() {
                           allSelectableNums.some(([n]) => n.startsWith(num + '.'));
 
                         return editCaps.map((cap, idx) => {
+                          const oculto = editOcultos.has(cap.numero);
+                          if (oculto) return null; // hidden caps rendered separately below
                           const capAlt = editAlt.filter(a => a.capitulo === cap.numero || a.capitulo.startsWith(cap.numero + '.'));
                           const altTotal = capAlt.reduce((s, a) => s + a.valor, 0);
                           const capTotal = getCenarioCapituloTotal(cap, editAlt);
@@ -3772,7 +3795,7 @@ export default function OrcamentosPage() {
                           return (
                             <React.Fragment key={cap.numero}>
                               {/* Chapter row */}
-                              <tr className="border-b bg-slate-50 font-semibold hover:bg-slate-100">
+                              <tr className="border-b bg-slate-50 font-semibold hover:bg-slate-100 group">
                                 <td className="px-1 py-1.5 text-center">
                                   {capHasChildren && (
                                     <button onClick={() => toggleCenarioCap(cap.numero)}
@@ -3806,7 +3829,17 @@ export default function OrcamentosPage() {
                                   {altTotal !== 0 ? `${altTotal > 0 ? '+' : ''}${formatCurrency(altTotal)}` : '—'}
                                   {capAlt.length > 0 && <span className="ml-1 text-[10px]">({capAlt.length})</span>}
                                 </td>
-                                <td className="px-3 py-2 text-right tabular-nums font-bold">{formatCurrency(capTotal)}</td>
+                                <td className="py-2 text-right tabular-nums font-bold">
+                                  <div className="flex items-center justify-end gap-1 pr-2">
+                                    <span>{formatCurrency(capTotal)}</span>
+                                    <button
+                                      onClick={() => toggleOculto(cap.numero)}
+                                      title="Ocultar capítulo"
+                                      className="opacity-0 group-hover:opacity-100 transition-opacity h-4 w-4 rounded flex items-center justify-center text-muted-foreground hover:text-orange-600 shrink-0">
+                                      <EyeOff className="h-3 w-3" />
+                                    </button>
+                                  </div>
+                                </td>
                               </tr>
                               {/* Descendant rows — any depth */}
                               {descendants.map(([subNum, subInfo]) => {
@@ -3843,12 +3876,29 @@ export default function OrcamentosPage() {
                           );
                         });
                       })()}
+                      {/* Hidden chapters row */}
+                      {editOcultos.size > 0 && editCaps.filter(c => editOcultos.has(c.numero)).map(cap => (
+                        <tr key={cap.numero} className="border-b bg-muted/20 opacity-50">
+                          <td />
+                          <td className="px-3 py-1.5 font-mono text-xs line-through text-muted-foreground">{cap.numero}</td>
+                          <td className="px-3 py-1.5 text-xs text-muted-foreground line-through truncate max-w-[200px]">{cap.descricao}</td>
+                          <td className="px-3 py-1.5 text-xs text-muted-foreground italic">Oculto</td>
+                          <td className="px-3 py-1.5 text-right tabular-nums text-xs text-muted-foreground line-through">{formatCurrency(cap.totalBase)}</td>
+                          <td />
+                          <td className="py-1.5 pr-2 text-right">
+                            <button onClick={() => toggleOculto(cap.numero)} title="Tornar visível"
+                              className="h-4 w-4 rounded flex items-center justify-center ml-auto text-orange-500 hover:text-foreground">
+                              <Eye className="h-3 w-3" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
                     <tfoot className="border-t-2 bg-muted/30">
                       <tr>
                         <td colSpan={4} className="px-3 py-2 font-bold text-sm">Total</td>
                         <td className="px-3 py-2 text-right font-semibold tabular-nums text-sm">
-                          {formatCurrency(editCaps.reduce((s, c) => s + c.totalBase, 0))}
+                          {formatCurrency(capsVisiveis.reduce((s, c) => s + c.totalBase, 0))}
                         </td>
                         <td className={cn('px-3 py-2 text-right font-semibold tabular-nums text-sm',
                           totalAlteracoes > 0 ? 'text-red-600' : totalAlteracoes < 0 ? 'text-green-600' : 'text-muted-foreground')}>
