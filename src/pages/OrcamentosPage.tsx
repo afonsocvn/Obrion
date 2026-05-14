@@ -513,11 +513,12 @@ interface LinhaTreeTableProps {
   onEscolherValor?: (id: string, total: number) => void;
   externalDismissed?: Set<string>;
   onDismiss?: (id: string) => void;
+  onRemoverLinha?: (id: string) => void;
 }
 
 function LinhaTreeTable({
   linhas, totalBase, ficheiroIndex, editavel = false,
-  onEscolherValor, externalDismissed, onDismiss,
+  onEscolherValor, externalDismissed, onDismiss, onRemoverLinha,
 }: LinhaTreeTableProps) {
   // Todos os prefixos ancestrais necessários para visibilidade total
   const todosAncestores = useMemo(() => {
@@ -601,7 +602,7 @@ function LinhaTreeTable({
           <col className="w-28" />
           <col className="w-28" />
           <col className="w-14" />
-          <col className="w-7" />
+          <col className="w-12" />
         </colgroup>
         <thead>
           <tr className="bg-muted/50 border-b text-muted-foreground">
@@ -630,7 +631,7 @@ function LinhaTreeTable({
             const eNivel2Cap = linha.nivel === 2 && eCapitulo;
             return (
               <tr key={linha.id} className={cn(
-                'border-b',
+                'border-b group',
                 eNivel1 ? 'bg-slate-200 font-bold border-t-2 border-t-slate-400 text-slate-900'
                   : eNivel2Cap ? 'bg-slate-50 font-semibold'
                   : eCapitulo ? 'font-semibold hover:bg-muted/20'
@@ -678,63 +679,74 @@ function LinhaTreeTable({
                     </span>
                   )}
                 </td>
-                <td className="px-2 py-1.5 text-center">
-                  {temErro && editavel ? (
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <button className="inline-flex items-center justify-center rounded hover:bg-amber-100 p-0.5">
-                          <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
-                        </button>
-                      </PopoverTrigger>
-                      <PopoverContent side="left" className="w-80 p-0 bg-white" align="center">
-                        <div className="p-3 space-y-3">
-                          <p className="text-sm font-semibold flex items-center gap-1.5">
-                            <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
-                            Inconsistência de valores
-                          </p>
-                          <div className="text-xs space-y-1.5 text-muted-foreground">
-                            <div className="flex justify-between">
-                              <span>Total declarado no Excel</span>
-                              <span className="font-medium text-foreground tabular-nums">{formatCurrency(linha.total)}</span>
+                <td className="px-1 py-1.5">
+                  <div className="flex items-center justify-end gap-0.5">
+                    {temErro && editavel ? (
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <button className="inline-flex items-center justify-center rounded hover:bg-amber-100 p-0.5">
+                            <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent side="left" className="w-80 p-0 bg-white" align="center">
+                          <div className="p-3 space-y-3">
+                            <p className="text-sm font-semibold flex items-center gap-1.5">
+                              <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
+                              Inconsistência de valores
+                            </p>
+                            <div className="text-xs space-y-1.5 text-muted-foreground">
+                              <div className="flex justify-between">
+                                <span>Total declarado no Excel</span>
+                                <span className="font-medium text-foreground tabular-nums">{formatCurrency(linha.total)}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span>Soma calculada dos sub-itens</span>
+                                <span className="font-medium text-foreground tabular-nums">{formatCurrency(linha.somaCalculada)}</span>
+                              </div>
+                              <div className="flex justify-between border-t pt-1.5">
+                                <span>Diferença</span>
+                                <span className="font-medium text-amber-600 tabular-nums">
+                                  {formatCurrency(Math.abs(linha.somaCalculada - linha.total))}
+                                </span>
+                              </div>
                             </div>
-                            <div className="flex justify-between">
-                              <span>Soma calculada dos sub-itens</span>
-                              <span className="font-medium text-foreground tabular-nums">{formatCurrency(linha.somaCalculada)}</span>
-                            </div>
-                            <div className="flex justify-between border-t pt-1.5">
-                              <span>Diferença</span>
-                              <span className="font-medium text-amber-600 tabular-nums">
-                                {formatCurrency(Math.abs(linha.somaCalculada - linha.total))}
-                              </span>
+                            <div className="border-t pt-2.5 space-y-1.5">
+                              <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Qual valor usar?</p>
+                              <Button size="sm" variant="outline"
+                                className="w-full justify-between gap-2 text-left h-auto py-2 px-3"
+                                onClick={() => escolher(linha.id, linha.total)}>
+                                <span className="text-xs"><span className="block font-medium">Total do Excel</span>
+                                  <span className="text-muted-foreground">Mantém o valor original</span></span>
+                                <span className="tabular-nums font-semibold text-xs shrink-0">{formatCurrency(linha.total)}</span>
+                              </Button>
+                              <Button size="sm" variant="outline"
+                                className="w-full justify-between gap-2 text-left h-auto py-2 px-3 border-blue-200 hover:bg-blue-50"
+                                onClick={() => escolher(linha.id, linha.somaCalculada)}>
+                                <span className="text-xs"><span className="block font-medium text-blue-700">Soma calculada</span>
+                                  <span className="text-muted-foreground">Substitui pelo calculado</span></span>
+                                <span className="tabular-nums font-semibold text-xs text-blue-700 shrink-0">{formatCurrency(linha.somaCalculada)}</span>
+                              </Button>
                             </div>
                           </div>
-                          <div className="border-t pt-2.5 space-y-1.5">
-                            <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Qual valor usar?</p>
-                            <Button size="sm" variant="outline"
-                              className="w-full justify-between gap-2 text-left h-auto py-2 px-3"
-                              onClick={() => escolher(linha.id, linha.total)}>
-                              <span className="text-xs"><span className="block font-medium">Total do Excel</span>
-                                <span className="text-muted-foreground">Mantém o valor original</span></span>
-                              <span className="tabular-nums font-semibold text-xs shrink-0">{formatCurrency(linha.total)}</span>
-                            </Button>
-                            <Button size="sm" variant="outline"
-                              className="w-full justify-between gap-2 text-left h-auto py-2 px-3 border-blue-200 hover:bg-blue-50"
-                              onClick={() => escolher(linha.id, linha.somaCalculada)}>
-                              <span className="text-xs"><span className="block font-medium text-blue-700">Soma calculada</span>
-                                <span className="text-muted-foreground">Substitui pelo calculado</span></span>
-                              <span className="tabular-nums font-semibold text-xs text-blue-700 shrink-0">{formatCurrency(linha.somaCalculada)}</span>
-                            </Button>
-                          </div>
-                        </div>
-                      </PopoverContent>
-                    </Popover>
-                  ) : temErro ? (
-                    <AlertTriangle className="h-3.5 w-3.5 text-amber-500 inline" />
-                  ) : dismissed.has(linha.id) ? (
-                    <BadgeCheck className="h-3.5 w-3.5 text-green-500 inline" />
-                  ) : linha.isCapitulo ? (
-                    <Check className="h-3.5 w-3.5 text-green-500 inline" />
-                  ) : null}
+                        </PopoverContent>
+                      </Popover>
+                    ) : temErro ? (
+                      <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                    ) : dismissed.has(linha.id) ? (
+                      <BadgeCheck className="h-3.5 w-3.5 text-green-500" />
+                    ) : linha.isCapitulo ? (
+                      <Check className="h-3.5 w-3.5 text-green-500" />
+                    ) : null}
+                    {onRemoverLinha && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onRemoverLinha(linha.id); }}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity h-4 w-4 rounded flex items-center justify-center text-muted-foreground hover:text-red-600"
+                        title="Remover linha permanentemente"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             );
@@ -3932,6 +3944,24 @@ export default function OrcamentosPage() {
                   linhas={mergedLinhas}
                   totalBase={totalProj}
                   ficheiroIndex={ficheiroIndex}
+                  onRemoverLinha={(linhaId) => {
+                    updateOrcamentos(prev => prev.map(o => {
+                      if (o.id !== selectedOrcId) return o;
+                      return {
+                        ...o,
+                        projetos: o.projetos.map(p => {
+                          if (p.id !== selectedProjId) return p;
+                          return {
+                            ...p,
+                            ficheiros: p.ficheiros.map(f => {
+                              const novasLinhas = f.linhas.filter(l => l.id !== linhaId);
+                              return { ...f, linhas: novasLinhas, total: calcLinhasTotal(novasLinhas) };
+                            }),
+                          };
+                        }),
+                      };
+                    }));
+                  }}
                 />
               </Card>
             )}
