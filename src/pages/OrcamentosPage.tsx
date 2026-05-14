@@ -17,7 +17,7 @@ import {
   FileSpreadsheet, ChevronUp, ChevronDown, AlertTriangle, Check,
   Trash2, ArrowLeft, Save, ChevronRight, Plus, Minus, BadgeCheck,
   Layers, BarChart2, FolderOpen, AlertCircle, PencilLine, X, SlidersHorizontal, Star,
-  EyeOff, Eye, Link2,
+  EyeOff, Eye, Link2, FileDown,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -2001,6 +2001,110 @@ export default function OrcamentosPage() {
 
     const temProjsSel = projsSel.length > 0;
 
+    const printAnalise = () => {
+      const existing = document.getElementById('__analise_print_style');
+      if (existing) existing.remove();
+      const style = document.createElement('style');
+      style.id = '__analise_print_style';
+      style.textContent = `
+        @media print {
+          @page { margin: 12mm 14mm; size: A4 portrait; }
+
+          /* Hide everything except the print area */
+          body { visibility: hidden !important; background: white !important; }
+          #analise-print-area { visibility: visible !important; position: absolute; inset: 0; }
+          #analise-print-area * { visibility: visible !important; }
+
+          /* Base typography */
+          #analise-print-area {
+            font-size: 9.5px !important;
+            line-height: 1.4 !important;
+            color: #111827 !important;
+            width: 100% !important;
+          }
+
+          /* Hide interactive controls */
+          #analise-print-area button,
+          #analise-print-area [role="button"],
+          #analise-print-area [data-radix-select-trigger],
+          #analise-print-area [data-state="closed"],
+          #analise-print-area select { display: none !important; }
+
+          /* Cards: avoid breaking in the middle, add border */
+          #analise-print-area [class*="rounded"] {
+            break-inside: avoid;
+            page-break-inside: avoid;
+            border: 1px solid #e5e7eb !important;
+            box-shadow: none !important;
+            margin-bottom: 6mm !important;
+          }
+
+          /* Tables */
+          #analise-print-area table {
+            border-collapse: collapse !important;
+            width: 100% !important;
+            font-size: 8.5px !important;
+          }
+          #analise-print-area thead { display: table-header-group; }
+          #analise-print-area th {
+            background: #f1f5f9 !important;
+            padding: 3px 6px !important;
+            border: 1px solid #cbd5e1 !important;
+            font-weight: 600 !important;
+            text-align: inherit;
+          }
+          #analise-print-area td {
+            padding: 2.5px 6px !important;
+            border: 1px solid #e2e8f0 !important;
+          }
+          #analise-print-area tbody tr:nth-child(even) { background: #f8fafc !important; }
+
+          /* Charts: keep together, fixed height */
+          #analise-print-area .recharts-responsive-container {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+            overflow: visible !important;
+          }
+          #analise-print-area .recharts-wrapper { overflow: visible !important; }
+
+          /* Major sections: allow page break BEFORE but not inside */
+          #analise-print-area > div > [class*="mb-6"],
+          #analise-print-area > div > [class*="mb-5"] {
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+
+          /* Grids */
+          #analise-print-area [class*="grid"] {
+            display: grid !important;
+          }
+          #analise-print-area [class*="gap-3"] { gap: 4px !important; }
+          #analise-print-area [class*="gap-4"] { gap: 6px !important; }
+          #analise-print-area [class*="gap-6"] { gap: 8px !important; }
+
+          /* Text sizes */
+          #analise-print-area [class*="text-lg"]  { font-size: 12px !important; }
+          #analise-print-area [class*="text-sm"]  { font-size: 9px !important; }
+          #analise-print-area [class*="text-xs"]  { font-size: 8px !important; }
+          #analise-print-area [class*="text-base"]{ font-size: 10px !important; }
+          #analise-print-area [class*="text-2xl"] { font-size: 14px !important; }
+          #analise-print-area [class*="text-xl"]  { font-size: 13px !important; }
+
+          /* Padding reductions */
+          #analise-print-area [class*="px-5"] { padding-left: 8px !important; padding-right: 8px !important; }
+          #analise-print-area [class*="px-4"] { padding-left: 6px !important; padding-right: 6px !important; }
+          #analise-print-area [class*="py-4"] { padding-top: 4px !important; padding-bottom: 4px !important; }
+          #analise-print-area [class*="py-3"] { padding-top: 3px !important; padding-bottom: 3px !important; }
+          #analise-print-area [class*="mb-5"] { margin-bottom: 4mm !important; }
+          #analise-print-area [class*="mb-6"] { margin-bottom: 5mm !important; }
+          #analise-print-area [class*="mt-4"] { margin-top: 3mm !important; }
+        }
+      `;
+      document.head.appendChild(style);
+      window.print();
+      setTimeout(() => style.remove(), 3000);
+    };
+
     return (
       <div className="page-container animate-fade-in">
         <div className="flex items-center gap-3 mb-5">
@@ -2033,6 +2137,9 @@ export default function OrcamentosPage() {
                 </SelectContent>
               </Select>
             )}
+            <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5" onClick={printAnalise}>
+              <FileDown className="h-3 w-3" /> PDF
+            </Button>
             <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5"
               onClick={() => { setNomeAnalise(''); setShowGravarAnalise(true); }}>
               <Save className="h-3 w-3" /> Guardar análise
@@ -2161,6 +2268,9 @@ export default function OrcamentosPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* ══ ÁREA DE IMPRESSÃO ══ */}
+        <div id="analise-print-area">
 
         {/* ── Dados do Projeto ── */}
         {(() => {
@@ -3153,6 +3263,7 @@ export default function OrcamentosPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        </div>{/* ══ FIM ÁREA DE IMPRESSÃO ══ */}
       </div>
     );
   }
