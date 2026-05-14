@@ -896,7 +896,7 @@ export default function OrcamentosPage() {
   }, [view, selectedOrcId, selectedProjId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Data — start empty; populated by Supabase (or localStorage fallback) on mount
-  const [orcamentos, setOrcamentos]   = useState<Orcamento[]>([]);
+  const [_orcamentos, setOrcamentos]  = useState<Orcamento[]>([]);
   const [loadingData, setLoadingData] = useState(true);
 
   // ── Load from Supabase on mount (+ migrate localStorage if DB is empty) ───
@@ -927,6 +927,14 @@ export default function OrcamentosPage() {
     })();
     return () => { cancelled = true; };
   }, [user?.id, workspaceId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // React-state layer of deleted IDs — survives any setOrcamentos() call within the session
+  const [deletedIdsState, setDeletedIdsState] = useState<Set<string>>(() => loadDeletedIds());
+  // The true visible list: always filter by both localStorage tombstone + React state
+  const orcamentos = useMemo(
+    () => _orcamentos.filter(o => !deletedIdsState.has(o.id)),
+    [_orcamentos, deletedIdsState],
+  );
 
   // ── Sync to Supabase in background after every change ────────────────────
   const syncOrc = useCallback(async (orc: Orcamento) => {
@@ -1186,7 +1194,7 @@ export default function OrcamentosPage() {
 
   const eliminarOrcamento = (id: string) => {
     markDeletedId(id);
-    // Imediatamente remove do localStorage antes do state update
+    setDeletedIdsState(prev => new Set([...prev, id]));
     saveOrcamentosLS(loadOrcamentosLS().filter(o => o.id !== id));
     updateOrcamentos(prev => prev.filter(o => o.id !== id));
     toast.success('Projeto eliminado.');
