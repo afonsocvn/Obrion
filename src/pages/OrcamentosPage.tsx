@@ -118,7 +118,15 @@ interface FilePendente {
 
 // ─── Storage ──────────────────────────────────────────────────────────────────
 
-const LS_KEY = 'orcamentos_v2';
+const LS_KEY      = 'orcamentos_v2';
+const DELETED_KEY = 'orc_deleted_ids';
+function loadDeletedIds(): Set<string> {
+  try { return new Set(JSON.parse(localStorage.getItem(DELETED_KEY) ?? '[]')); } catch { return new Set(); }
+}
+function markDeletedId(id: string) {
+  const ids = loadDeletedIds(); ids.add(id);
+  localStorage.setItem(DELETED_KEY, JSON.stringify([...ids]));
+}
 function loadOrcamentosLS(): Orcamento[] {
   try {
     const raw = JSON.parse(localStorage.getItem(LS_KEY) ?? '[]');
@@ -867,8 +875,10 @@ export default function OrcamentosPage() {
     let cancelled = false;
     (async () => {
       setLoadingData(true);
-      const dbData = await loadOrcamentosDB(user.id, workspaceId);
+      const raw    = await loadOrcamentosDB(user.id, workspaceId);
       if (cancelled) return;
+      const deletedIds = loadDeletedIds();
+      const dbData = raw.filter(o => !deletedIds.has(o.id));
 
       if (dbData.length > 0) {
         setOrcamentos(dbData);
@@ -898,6 +908,12 @@ export default function OrcamentosPage() {
 
   const deleteOrcDB = useCallback(async (id: string) => {
     if (!user) return;
+    const { data: projs } = await supabase.from('orcamento_projetos').select('id').eq('orcamento_id', id);
+    const projIds = (projs ?? []).map((p: { id: string }) => p.id);
+    if (projIds.length > 0) {
+      await supabase.from('orcamento_ficheiros').delete().in('projeto_id', projIds);
+      await supabase.from('orcamento_projetos').delete().in('id', projIds);
+    }
     await supabase.from('orcamentos').delete().eq('id', id);
   }, [user]);
 
@@ -1106,6 +1122,7 @@ export default function OrcamentosPage() {
   };
 
   const eliminarOrcamento = (id: string) => {
+    markDeletedId(id);
     updateOrcamentos(prev => prev.filter(o => o.id !== id));
     toast.success('Projeto eliminado.');
   };
@@ -2018,24 +2035,32 @@ export default function OrcamentosPage() {
                 {projsPool.map((p, i) => {
                   const excl = compOrcExcluded.has(p.id);
                   return (
-                    <button key={p.id}
-                      onClick={() => setCompOrcExcluded(prev => {
-                        const s = new Set(prev);
-                        excl ? s.delete(p.id) : s.add(p.id);
-                        return s;
-                      })}
-                      className={cn('flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-all',
-                        excl ? 'bg-muted/30 text-muted-foreground/40 border-muted line-through' : 'border')}
-                      style={excl ? {} : {
-                        background: ORC_PALETTE[i % ORC_PALETTE.length] + '18',
-                        color: ORC_PALETTE[i % ORC_PALETTE.length],
-                        borderColor: ORC_PALETTE[i % ORC_PALETTE.length] + '50',
-                      }}>
-                      {p.nome}
-                      {p.versao && !excl && (
-                        <span className={cn('px-1 rounded text-[9px] font-bold border', versaoCor(p.versao))}>{p.versao}</span>
-                      )}
-                    </button>
+                    <div key={p.id} className="flex items-center gap-0.5">
+                      <button
+                        onClick={() => setCompOrcExcluded(prev => {
+                          const s = new Set(prev);
+                          excl ? s.delete(p.id) : s.add(p.id);
+                          return s;
+                        })}
+                        className={cn('flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-all',
+                          excl ? 'bg-muted/30 text-muted-foreground/40 border-muted line-through' : 'border')}
+                        style={excl ? {} : {
+                          background: ORC_PALETTE[i % ORC_PALETTE.length] + '18',
+                          color: ORC_PALETTE[i % ORC_PALETTE.length],
+                          borderColor: ORC_PALETTE[i % ORC_PALETTE.length] + '50',
+                        }}>
+                        {p.nome}
+                        {p.versao && !excl && (
+                          <span className={cn('px-1 rounded text-[9px] font-bold border', versaoCor(p.versao))}>{p.versao}</span>
+                        )}
+                      </button>
+                      <button
+                        onClick={() => irParaProjeto(p.id)}
+                        title="Ver só este orçamento"
+                        className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors">
+                        <Eye className="h-3 w-3" />
+                      </button>
+                    </div>
                   );
                 })}
               </div>
