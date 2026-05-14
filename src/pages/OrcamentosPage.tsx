@@ -3746,77 +3746,103 @@ export default function OrcamentosPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {editCaps.map((cap, idx) => {
-                        const capAlt = editAlt.filter(a => a.capitulo === cap.numero || a.capitulo.startsWith(cap.numero + '.'));
-                        const altTotal = capAlt.reduce((s, a) => s + a.valor, 0);
-                        const capTotal = getCenarioCapituloTotal(cap, editAlt);
-                        const expanded = expandedCenarioCaps.has(cap.numero);
-                        // Subcapítulos for this chapter
-                        const subcaps = allSelectableNums.filter(([num]) =>
-                          num.startsWith(cap.numero + '.') && getNivel(num) === 2
-                        );
-                        const hasSubcaps = subcaps.length > 0;
-                        return (
-                          <React.Fragment key={cap.numero}>
-                            <tr className="border-b bg-slate-50 font-semibold hover:bg-slate-100">
-                              <td className="px-1 py-1.5 text-center">
-                                {hasSubcaps && (
-                                  <button onClick={() => toggleCenarioCap(cap.numero)}
-                                    className="h-4 w-4 rounded flex items-center justify-center mx-auto text-muted-foreground hover:text-foreground">
-                                    {expanded ? <Minus className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
-                                  </button>
-                                )}
-                              </td>
-                              <td className="px-3 py-2 font-mono font-bold text-slate-700">{cap.numero}</td>
-                              <td className="px-3 py-2 truncate max-w-[200px]">{cap.descricao}</td>
-                              <td className="px-3 py-2">
-                                <Select value={cap.fonte} onValueChange={v => {
-                                  const vals = baseProjs.map(p => getCapituloTotais(p).find(c => c.numero === cap.numero)?.total ?? 0).filter(x => x > 0);
-                                  const total = v === 'media'
-                                    ? Math.round(vals.reduce((s, x) => s + x, 0) / (vals.length || 1))
-                                    : (getCapituloTotais(baseProjs.find(p => p.id === v)!).find(c => c.numero === cap.numero)?.total ?? 0);
-                                  setCenarioEditCaps(prev => prev.map((c, i) => i === idx ? { ...c, fonte: v, totalBase: total } : c));
-                                }}>
-                                  <SelectTrigger className="h-7 text-xs font-normal"><SelectValue /></SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="media" className="text-xs">Média</SelectItem>
-                                    {baseProjs.map(p => (
-                                      <SelectItem key={p.id} value={p.id} className="text-xs">{p.nome}{p.versao && ` (${p.versao})`}</SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              </td>
-                              <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(cap.totalBase)}</td>
-                              <td className={cn('px-3 py-2 text-right tabular-nums',
-                                altTotal > 0 ? 'text-red-600' : altTotal < 0 ? 'text-green-600' : 'text-muted-foreground/40')}>
-                                {altTotal !== 0 ? `${altTotal > 0 ? '+' : ''}${formatCurrency(altTotal)}` : '—'}
-                                {capAlt.length > 0 && <span className="ml-1 text-[10px]">({capAlt.length})</span>}
-                              </td>
-                              <td className="px-3 py-2 text-right tabular-nums font-bold">{formatCurrency(capTotal)}</td>
-                            </tr>
-                            {expanded && subcaps.map(([subNum, subInfo]) => {
-                              const subAlt = editAlt.filter(a => a.capitulo === subNum);
-                              const subAltTotal = subAlt.reduce((s, a) => s + a.valor, 0);
-                              return (
-                                <tr key={subNum} className="border-b hover:bg-muted/10">
-                                  <td />
-                                  <td className="px-3 py-1.5 font-mono text-slate-500 pl-7">{subNum}</td>
-                                  <td className="px-3 py-1.5 text-muted-foreground truncate max-w-[200px]">{subInfo.descricao}</td>
-                                  <td className="px-3 py-1.5 text-xs text-muted-foreground italic">Média</td>
-                                  <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{subInfo.mediaTotal > 0 ? formatCurrency(subInfo.mediaTotal) : '—'}</td>
-                                  <td className={cn('px-3 py-1.5 text-right tabular-nums text-xs',
-                                    subAltTotal > 0 ? 'text-red-600' : subAltTotal < 0 ? 'text-green-600' : 'text-muted-foreground/40')}>
-                                    {subAltTotal !== 0 ? `${subAltTotal > 0 ? '+' : ''}${formatCurrency(subAltTotal)}` : '—'}
-                                  </td>
-                                  <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">
-                                    {subInfo.mediaTotal + subAltTotal !== 0 ? formatCurrency(subInfo.mediaTotal + subAltTotal) : '—'}
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </React.Fragment>
-                        );
-                      })}
+                      {(() => {
+                        // A subcap is visible only when all ancestor nodes are expanded
+                        const isVisible = (num: string) => {
+                          const parts = num.split('.');
+                          for (let i = 1; i < parts.length; i++) {
+                            if (!expandedCenarioCaps.has(parts.slice(0, i).join('.'))) return false;
+                          }
+                          return true;
+                        };
+                        // A node has children if any other node starts with its prefix
+                        const hasChildren = (num: string) =>
+                          allSelectableNums.some(([n]) => n.startsWith(num + '.'));
+
+                        return editCaps.map((cap, idx) => {
+                          const capAlt = editAlt.filter(a => a.capitulo === cap.numero || a.capitulo.startsWith(cap.numero + '.'));
+                          const altTotal = capAlt.reduce((s, a) => s + a.valor, 0);
+                          const capTotal = getCenarioCapituloTotal(cap, editAlt);
+                          const capHasChildren = hasChildren(cap.numero);
+                          const capExpanded = expandedCenarioCaps.has(cap.numero);
+                          // All descendants of this cap, in order, filtered by visibility
+                          const descendants = allSelectableNums.filter(([num]) =>
+                            num.startsWith(cap.numero + '.') && isVisible(num)
+                          );
+                          return (
+                            <React.Fragment key={cap.numero}>
+                              {/* Chapter row */}
+                              <tr className="border-b bg-slate-50 font-semibold hover:bg-slate-100">
+                                <td className="px-1 py-1.5 text-center">
+                                  {capHasChildren && (
+                                    <button onClick={() => toggleCenarioCap(cap.numero)}
+                                      className="h-4 w-4 rounded flex items-center justify-center mx-auto text-muted-foreground hover:text-foreground">
+                                      {capExpanded ? <Minus className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
+                                    </button>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2 font-mono font-bold text-slate-700">{cap.numero}</td>
+                                <td className="px-3 py-2 truncate max-w-[200px]">{cap.descricao}</td>
+                                <td className="px-3 py-2">
+                                  <Select value={cap.fonte} onValueChange={v => {
+                                    const vals = baseProjs.map(p => getCapituloTotais(p).find(c => c.numero === cap.numero)?.total ?? 0).filter(x => x > 0);
+                                    const total = v === 'media'
+                                      ? Math.round(vals.reduce((s, x) => s + x, 0) / (vals.length || 1))
+                                      : (getCapituloTotais(baseProjs.find(p => p.id === v)!).find(c => c.numero === cap.numero)?.total ?? 0);
+                                    setCenarioEditCaps(prev => prev.map((c, i) => i === idx ? { ...c, fonte: v, totalBase: total } : c));
+                                  }}>
+                                    <SelectTrigger className="h-7 text-xs font-normal"><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="media" className="text-xs">Média</SelectItem>
+                                      {baseProjs.map(p => (
+                                        <SelectItem key={p.id} value={p.id} className="text-xs">{p.nome}{p.versao && ` (${p.versao})`}</SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </td>
+                                <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(cap.totalBase)}</td>
+                                <td className={cn('px-3 py-2 text-right tabular-nums',
+                                  altTotal > 0 ? 'text-red-600' : altTotal < 0 ? 'text-green-600' : 'text-muted-foreground/40')}>
+                                  {altTotal !== 0 ? `${altTotal > 0 ? '+' : ''}${formatCurrency(altTotal)}` : '—'}
+                                  {capAlt.length > 0 && <span className="ml-1 text-[10px]">({capAlt.length})</span>}
+                                </td>
+                                <td className="px-3 py-2 text-right tabular-nums font-bold">{formatCurrency(capTotal)}</td>
+                              </tr>
+                              {/* Descendant rows — any depth */}
+                              {descendants.map(([subNum, subInfo]) => {
+                                const subAlt = editAlt.filter(a => a.capitulo === subNum || a.capitulo.startsWith(subNum + '.'));
+                                const subAltTotal = subAlt.reduce((s, a) => s + a.valor, 0);
+                                const subHasChildren = hasChildren(subNum);
+                                const subExpanded = expandedCenarioCaps.has(subNum);
+                                const indent = (subInfo.nivel - 1) * 14;
+                                return (
+                                  <tr key={subNum} className="border-b hover:bg-muted/10">
+                                    <td className="px-1 py-1 text-center">
+                                      {subHasChildren && (
+                                        <button onClick={() => toggleCenarioCap(subNum)}
+                                          className="h-4 w-4 rounded flex items-center justify-center mx-auto text-muted-foreground hover:text-foreground">
+                                          {subExpanded ? <Minus className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
+                                        </button>
+                                      )}
+                                    </td>
+                                    <td className="py-1.5 font-mono text-slate-500" style={{ paddingLeft: `${indent}px` }}>{subNum}</td>
+                                    <td className="px-3 py-1.5 text-muted-foreground truncate max-w-[200px]">{subInfo.descricao}</td>
+                                    <td className="px-3 py-1.5 text-xs text-muted-foreground italic">Média</td>
+                                    <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{subInfo.mediaTotal > 0 ? formatCurrency(subInfo.mediaTotal) : '—'}</td>
+                                    <td className={cn('px-3 py-1.5 text-right tabular-nums text-xs',
+                                      subAltTotal > 0 ? 'text-red-600' : subAltTotal < 0 ? 'text-green-600' : 'text-muted-foreground/40')}>
+                                      {subAltTotal !== 0 ? `${subAltTotal > 0 ? '+' : ''}${formatCurrency(subAltTotal)}` : '—'}
+                                    </td>
+                                    <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">
+                                      {subInfo.mediaTotal + subAltTotal !== 0 ? formatCurrency(subInfo.mediaTotal + subAltTotal) : '—'}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </React.Fragment>
+                          );
+                        });
+                      })()}
                     </tbody>
                     <tfoot className="border-t-2 bg-muted/30">
                       <tr>
