@@ -1119,9 +1119,36 @@ export default function OrcamentosPage() {
     const map = new Map<string, CapTotal[]>();
     (selectedOrc?.projetos ?? []).forEach(p => map.set(p.id, getCapituloTotais(p)));
     return map;
-  }, [selectedOrc]); // only recompute when orcamento data actually changes
+  }, [selectedOrc]);
 
-  const getCapTotais = (p: Projeto) => capTotaisCache.get(p.id) ?? getCapituloTotais(p);
+  const capTotaisAllCache = useMemo(() => {
+    const map = new Map<string, CapTotal[]>();
+    (selectedOrc?.projetos ?? []).forEach(p => map.set(p.id, getCapituloTotaisAll(p)));
+    return map;
+  }, [selectedOrc]);
+
+  const getCapTotais    = (p: Projeto) => capTotaisCache.get(p.id)    ?? getCapituloTotais(p);
+  const getCapTotaisAll = (p: Projeto) => capTotaisAllCache.get(p.id) ?? getCapituloTotaisAll(p);
+
+  // Subcapítulos do cenário activo — só recomputa quando o projeto ou orçamento mudam
+  const cenarioSubcaps = useMemo(() => {
+    if (!selectedProj || selectedProj.tipo !== 'cenario' || !selectedProj.cenarioConfig) {
+      return { allSubcapsMap: new Map<string, { descricao: string; mediaTotal: number; nivel: number }>(), allSelectableNums: [] as [string, { descricao: string; mediaTotal: number; nivel: number }][] };
+    }
+    const bProjs = (selectedOrc?.projetos ?? []).filter(
+      p => p.tipo !== 'cenario' && selectedProj.cenarioConfig!.projetosBase.includes(p.id)
+    );
+    const map = new Map<string, { descricao: string; mediaTotal: number; nivel: number }>();
+    bProjs.forEach(p => getCapTotaisAll(p).forEach(c => {
+      if (!map.has(c.numero)) map.set(c.numero, { descricao: c.descricao, mediaTotal: 0, nivel: c.nivel });
+    }));
+    map.forEach((val, num) => {
+      const vals = bProjs.map(p => getCapTotaisAll(p).find(c => c.numero === num)?.total ?? 0).filter(v => v > 0);
+      val.mediaTotal = vals.length > 0 ? Math.round(vals.reduce((s, v) => s + v, 0) / vals.length) : 0;
+    });
+    const allSelectableNums = Array.from(map.entries()).sort((a, b) => sortNumericamente(a[0], b[0]));
+    return { allSubcapsMap: map, allSelectableNums };
+  }, [selectedProj?.id, selectedOrc?.projetos]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const totalProcessado = useMemo(() => {
     const nivel1 = linhasProcessadas.filter(l => getNivel(l.numero) === 1);
@@ -3670,24 +3697,8 @@ export default function OrcamentosPage() {
           const totalCenario = editCaps.reduce((s, c) => s + getCenarioCapituloTotal(c, editAlt), 0);
           const totalAlteracoes = editAlt.reduce((s, a) => s + a.valor, 0);
 
-          // All subcapítulos from base projects (for display + alterações select)
-          const allSubcapsMap = new Map<string, { descricao: string; mediaTotal: number; nivel: number }>();
-          baseProjs.forEach(p => {
-            getCapituloTotaisAll(p).forEach(c => {
-              if (!allSubcapsMap.has(c.numero)) {
-                allSubcapsMap.set(c.numero, { descricao: c.descricao, mediaTotal: 0, nivel: c.nivel });
-              }
-            });
-          });
-          // Compute average per subcapítulo across base projects
-          allSubcapsMap.forEach((val, num) => {
-            const vals = baseProjs.map(p => getCapituloTotaisAll(p).find(c => c.numero === num)?.total ?? 0).filter(v => v > 0);
-            val.mediaTotal = vals.length > 0 ? Math.round(vals.reduce((s, v) => s + v, 0) / vals.length) : 0;
-          });
-
-          // All selectable numbers for alterações (caps + subcaps)
-          const allSelectableNums = Array.from(allSubcapsMap.entries())
-            .sort((a, b) => sortNumericamente(a[0], b[0]));
+          // Use memoized subcap data (computed at component level)
+          const { allSubcapsMap, allSelectableNums } = cenarioSubcaps;
 
           const TIPOS_ALT: { tipo: TipoAlteracao; label: string; cor: string; defaultSignal: number }[] = [
             { tipo: 'otimizacao',   label: 'Otimizações',  cor: 'text-green-700 bg-green-50 border-green-200', defaultSignal: -1 },
