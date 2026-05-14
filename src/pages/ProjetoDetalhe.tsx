@@ -95,9 +95,17 @@ export default function ProjetoDetalhe() {
       });
   }, [id, activeTab]);
 
-  const [filtroFracoes, setFiltroFracoes] = useState<Set<string>>(new Set());
-  const [filtroCapitulo, setFiltroCapitulo] = useState<string>('todos');
-  const [expandedCapitulos, setExpandedCapitulos] = useState<Set<string>>(new Set());
+  const [filtroFracoes, setFiltroFracoes] = useState<Set<string>>(() => {
+    try { const s = sessionStorage.getItem(`pd_${id}_fracoes`); return s ? new Set(JSON.parse(s)) : new Set(); } catch { return new Set(); }
+  });
+  const [filtroCapitulo, setFiltroCapitulo] = useState<string>(() => sessionStorage.getItem(`pd_${id}_cap`) ?? 'todos');
+  const [expandedCapitulos, setExpandedCapitulos] = useState<Set<string>>(() => {
+    try { const s = sessionStorage.getItem(`pd_${id}_expanded`); return s ? new Set(JSON.parse(s)) : new Set(); } catch { return new Set(); }
+  });
+
+  useEffect(() => { sessionStorage.setItem(`pd_${id}_fracoes`, JSON.stringify([...filtroFracoes])); }, [filtroFracoes, id]);
+  useEffect(() => { sessionStorage.setItem(`pd_${id}_cap`, filtroCapitulo); }, [filtroCapitulo, id]);
+  useEffect(() => { sessionStorage.setItem(`pd_${id}_expanded`, JSON.stringify([...expandedCapitulos])); }, [expandedCapitulos, id]);
   const [materialPickerTarefa, setMaterialPickerTarefa] = useState<{ tarefaId: string; categoriaFiltro?: string } | null>(null);
   const [maoDeObraPickerTarefa, setMaoDeObraPickerTarefa] = useState<{ tarefaId: string; categoriaFiltro?: string } | null>(null);
   const [guardarTemplateInfo, setGuardarTemplateInfo] = useState<{ subcapitulo: string; tarefas: TarefaCusto[] } | null>(null);
@@ -559,7 +567,7 @@ export default function ProjetoDetalhe() {
                 <th className="w-28">M. Obra (€)</th>
                 <th className="w-20">Margem %</th>
                 <th className="w-28 text-right">Total (€)</th>
-                <th className="w-36">Notas</th>
+                <th className="w-36">€/un.</th>
               </tr>
             </thead>
             <tbody>
@@ -845,7 +853,15 @@ function FracaoImagem({ fracao, selected, onToggle, onQuantidade, onImagem, onDi
         </div>
 
         <div className="space-y-1">
-          {(editing ? divisoes : fracao.divisoes).map(d => (
+          {(() => {
+            const divisoesAtivas = editing ? divisoes : fracao.divisoes;
+            const labelCount: Record<string, number> = {};
+            for (const d of divisoesAtivas) labelCount[d.tipo] = (labelCount[d.tipo] ?? 0) + 1;
+            const labelIdx: Record<string, number> = {};
+            return divisoesAtivas.map(d => {
+              labelIdx[d.tipo] = (labelIdx[d.tipo] ?? 0) + 1;
+              const displayName = labelCount[d.tipo] > 1 ? `${d.tipo} ${labelIdx[d.tipo]}` : d.tipo;
+              return (
             <div key={d.id} className="flex items-center gap-1.5">
               {editing ? (
                 <>
@@ -877,13 +893,15 @@ function FracaoImagem({ fracao, selected, onToggle, onQuantidade, onImagem, onDi
                 </>
               ) : (
                 <>
-                  <span className="text-sm text-muted-foreground flex-1">{d.tipo}</span>
+                  <span className="text-sm text-muted-foreground flex-1">{displayName}</span>
                   <span className="text-sm font-medium mono">{d.area} m²</span>
                   <span className="text-xs text-muted-foreground mono">{(d.peDireito ?? 2.7).toFixed(1)}m</span>
                 </>
               )}
             </div>
-          ))}
+              );
+            });
+          })()}
 
           {editing && (
             <button onClick={addDivisao} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mt-1 transition-colors">
@@ -1437,12 +1455,9 @@ function TarefaRow({
       <td className="px-3 py-1.5 text-right mono text-sm font-medium">{formatCurrency(total)}</td>
       <td className="px-1 py-1">
         <div className="flex items-center gap-1">
-          <Input
-            value={tarefa.notas}
-            onChange={e => onUpdate(tarefa.id, { notas: e.target.value })}
-            className="h-7 text-xs w-28"
-            placeholder="Notas"
-          />
+          <span className="text-xs mono w-28 text-right text-muted-foreground tabular-nums">
+            {formatCurrency((tarefa.custoMaterial + tarefa.custoMaoObra) * (1 + tarefa.margemEmpreiteiro / 100))}
+          </span>
           <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive" onClick={() => onDelete(tarefa.id)} title="Remover tarefa">
             <Trash2 className="h-3 w-3" />
           </Button>

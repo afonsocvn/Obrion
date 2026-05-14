@@ -1,6 +1,6 @@
 export type Tipologia = 'T0' | 'T1' | 'T2' | 'T3' | 'T4+';
 export type NivelQualidade = 'Básico' | 'Médio' | 'Premium';
-export type TipoDivisao = 'Quarto' | 'Casa de Banho' | 'Sala' | 'Cozinha' | 'Varanda' | 'Circulação' | 'Zona Exterior';
+export type TipoDivisao = 'Quarto' | 'Casa de Banho' | 'Sala' | 'Cozinha' | 'Varanda' | 'Circulação' | 'Lavandaria' | 'Arrumos' | 'Zona Exterior';
 
 export interface Divisao {
   id: string;
@@ -173,4 +173,4 @@ export const TIPOS_MATERIAL: Record<string, string[]> = {
 
 export const TIPOLOGIAS: Tipologia[] = ['T0', 'T1', 'T2', 'T3', 'T4+'];
 export const NIVEIS_QUALIDADE: NivelQualidade[] = ['Básico', 'Médio', 'Premium'];
-export const TIPOS_DIVISAO: TipoDivisao[] = ['Sala', 'Quarto', 'Casa de Banho', 'Cozinha', 'Varanda', 'Circulação', 'Zona Exterior'];
+export const TIPOS_DIVISAO: TipoDivisao[] = ['Sala', 'Quarto', 'Casa de Banho', 'Cozinha', 'Varanda', 'Circulação', 'Lavandaria', 'Arrumos', 'Zona Exterior'];

@@ -13,6 +13,8 @@ function computeAreas(divisoes: Divisao[]) {
     cozinha: 0, cozinhaParedes: 0,
     varandas: 0,
     circulacao: 0, circulacaoParedes: 0,
+    lavandaria: 0, lavandariaParedes: 0,
+    arrumos: 0,
     zonaExterior: 0,
   };
   for (const d of divisoes) {
@@ -22,6 +24,8 @@ function computeAreas(divisoes: Divisao[]) {
     else if (d.tipo === 'Cozinha') { a.cozinha += d.area; a.cozinhaParedes += paredesArea(d); }
     else if (d.tipo === 'Varanda') a.varandas += d.area;
     else if (d.tipo === 'Circulação') { a.circulacao += d.area; a.circulacaoParedes += paredesArea(d); }
+    else if (d.tipo === 'Lavandaria') { a.lavandaria += d.area; a.lavandariaParedes += paredesArea(d); }
+    else if (d.tipo === 'Arrumos') { a.arrumos += d.area; }
     else if (d.tipo === 'Zona Exterior') a.zonaExterior += d.area;
   }
   return a;
@@ -68,6 +72,9 @@ const areaMultipliers = {
   varandas: 'varandas' as const,
   circulacao: 'circulacao' as const,
   circulacaoParedes: 'circulacaoParedes' as const,
+  lavandaria: 'lavandaria' as const,
+  lavandariaParedes: 'lavandariaParedes' as const,
+  arrumos: 'arrumos' as const,
   zonaExterior: 'zonaExterior' as const,
   total: 'total' as const,
 };
@@ -139,6 +146,22 @@ const templates: TarefaTemplate[] = [
   { capitulo: 'Acabamentos Interiores', subcapitulo: 'Circulação', tarefa: 'Carpintaria interior',      unidade: 'vg.', areaKey: 'circulacao', categoriaFiltro: 'Carpintaria',    custoMaterialBase: 350, custoMaoObraBase: 150, margemBase: 15 },
   { capitulo: 'Acabamentos Interiores', subcapitulo: 'Circulação', tarefa: 'Tetos',                     unidade: 'm²',  areaKey: 'circulacao', categoriaFiltro: 'Pintura',         custoMaterialBase: 8,   custoMaoObraBase: 6,   margemBase: 15 },
   { capitulo: 'Acabamentos Interiores', subcapitulo: 'Circulação', tarefa: 'Rodapés',                   unidade: 'ml',  areaKey: 'circulacao', categoriaFiltro: 'Carpintaria',     custoMaterialBase: 15,  custoMaoObraBase: 8,   margemBase: 15 },
+  // Lavandaria
+  { capitulo: 'Acabamentos Interiores', subcapitulo: 'Lavandaria', tarefa: 'Impermeabilização',         unidade: 'm²',  areaKey: 'lavandaria',       categoriaFiltro: 'Impermeabilização', custoMaterialBase: 12,  custoMaoObraBase: 8,   margemBase: 15, areaMultiplier: 1.2 },
+  { capitulo: 'Acabamentos Interiores', subcapitulo: 'Lavandaria', tarefa: 'Revestimentos — Paredes',   unidade: 'm²',  areaKey: 'lavandariaParedes', categoriaFiltro: 'Revestimentos',     custoMaterialBase: 22,  custoMaoObraBase: 15,  margemBase: 15 },
+  { capitulo: 'Acabamentos Interiores', subcapitulo: 'Lavandaria', tarefa: 'Revestimentos — Pavimento', unidade: 'm²',  areaKey: 'lavandaria',       categoriaFiltro: 'Revestimentos',     custoMaterialBase: 20,  custoMaoObraBase: 12,  margemBase: 15 },
+  { capitulo: 'Acabamentos Interiores', subcapitulo: 'Lavandaria', tarefa: 'Máquina de lavar roupa',    unidade: 'vg.', areaKey: 'lavandaria',       categoriaFiltro: 'Eletrodomésticos',  custoMaterialBase: 700, custoMaoObraBase: 100, margemBase: 15 },
+  { capitulo: 'Acabamentos Interiores', subcapitulo: 'Lavandaria', tarefa: 'Vãos Interiores',           unidade: 'un.', areaKey: 'lavandaria',       categoriaFiltro: 'Vãos Interiores',   custoMaterialBase: 280, custoMaoObraBase: 100, margemBase: 15 },
+  { capitulo: 'Acabamentos Interiores', subcapitulo: 'Lavandaria', tarefa: 'Tetos',                     unidade: 'm²',  areaKey: 'lavandaria',       categoriaFiltro: 'Pintura',           custoMaterialBase: 8,   custoMaoObraBase: 6,   margemBase: 15 },
+  { capitulo: 'Acabamentos Interiores', subcapitulo: 'Lavandaria', tarefa: 'Rodapés',                   unidade: 'ml',  areaKey: 'lavandaria',       categoriaFiltro: 'Carpintaria',       custoMaterialBase: 15,  custoMaoObraBase: 8,   margemBase: 15 },
+  // Arrumos
+  { capitulo: 'Acabamentos Interiores', subcapitulo: 'Arrumos', tarefa: 'Revestimentos — Pavimento', unidade: 'm²',  areaKey: 'arrumos', categoriaFiltro: 'Revestimentos',   custoMaterialBase: 18,  custoMaoObraBase: 10,  margemBase: 15 },
+  { capitulo: 'Acabamentos Interiores', subcapitulo: 'Arrumos', tarefa: 'Pintura',                   unidade: 'm²',  areaKey: 'arrumos', categoriaFiltro: 'Pintura',         custoMaterialBase: 5,   custoMaoObraBase: 7,   margemBase: 15 },
+  { capitulo: 'Acabamentos Interiores', subcapitulo: 'Arrumos', tarefa: 'Instalação elétrica',       unidade: 'vg.', areaKey: 'arrumos', categoriaFiltro: 'Elétrica',        custoMaterialBase: 100, custoMaoObraBase: 180, margemBase: 15 },
+  { capitulo: 'Acabamentos Interiores', subcapitulo: 'Arrumos', tarefa: 'Vãos Interiores',           unidade: 'vg.', areaKey: 'arrumos', categoriaFiltro: 'Vãos Interiores', custoMaterialBase: 280, custoMaoObraBase: 100, margemBase: 15 },
+  { capitulo: 'Acabamentos Interiores', subcapitulo: 'Arrumos', tarefa: 'Carpintaria interior',      unidade: 'vg.', areaKey: 'arrumos', categoriaFiltro: 'Carpintaria',     custoMaterialBase: 350, custoMaoObraBase: 150, margemBase: 15 },
+  { capitulo: 'Acabamentos Interiores', subcapitulo: 'Arrumos', tarefa: 'Tetos',                     unidade: 'm²',  areaKey: 'arrumos', categoriaFiltro: 'Pintura',         custoMaterialBase: 8,   custoMaoObraBase: 6,   margemBase: 15 },
+  { capitulo: 'Acabamentos Interiores', subcapitulo: 'Arrumos', tarefa: 'Rodapés',                   unidade: 'ml',  areaKey: 'arrumos', categoriaFiltro: 'Carpintaria',     custoMaterialBase: 15,  custoMaoObraBase: 8,   margemBase: 15 },
   // Zona Exterior
   { capitulo: 'Acabamentos Exteriores', subcapitulo: 'Vãos',          tarefa: 'Vãos',                      unidade: 'un.', areaKey: 'total',        categoriaFiltro: 'Vãos Exteriores',          custoMaterialBase: 120, custoMaoObraBase: 60,  margemBase: 15 },
   { capitulo: 'Acabamentos Exteriores', subcapitulo: 'Vãos',          tarefa: 'Portas exteriores',         unidade: 'un.', areaKey: 'total',        categoriaFiltro: 'Vãos Exteriores',          custoMaterialBase: 800, custoMaoObraBase: 200, margemBase: 15 },
@@ -149,7 +172,7 @@ const templates: TarefaTemplate[] = [
   { capitulo: 'Acabamentos Exteriores', subcapitulo: 'Zona Exterior', tarefa: 'Arranjos exteriores',       unidade: 'm²',  areaKey: 'zonaExterior', categoriaFiltro: 'Outros',        custoMaterialBase: 12,  custoMaoObraBase: 10,  margemBase: 15 },
 ];
 
-const WALL_AREA_KEYS = new Set(['casasBanhoParedes', 'cozinhaParedes', 'salaParedes', 'quartosParedes', 'circulacaoParedes']);
+const WALL_AREA_KEYS = new Set(['casasBanhoParedes', 'cozinhaParedes', 'salaParedes', 'quartosParedes', 'circulacaoParedes', 'lavandariaParedes']);
 
 function areaBaseParaKey(areaKey: string, areas: ReturnType<typeof computeAreas>): number {
   if (areaKey === 'total') {
@@ -206,6 +229,8 @@ const TIPO_SUBCAPITULO: Record<string, string> = {
   'Quarto':        'Quartos',
   'Varanda':       'Varandas',
   'Circulação':    'Circulação',
+  'Lavandaria':    'Lavandaria',
+  'Arrumos':       'Arrumos',
   'Zona Exterior': 'Zona Exterior',
 };
 
@@ -217,6 +242,8 @@ const TIPO_AREA_KEYS: Record<string, string[]> = {
   'Quarto':        ['quartos', 'quartosParedes'],
   'Varanda':       ['varandas'],
   'Circulação':    ['circulacao', 'circulacaoParedes'],
+  'Lavandaria':    ['lavandaria', 'lavandariaParedes'],
+  'Arrumos':       ['arrumos'],
   'Zona Exterior': ['zonaExterior'],
 };
 

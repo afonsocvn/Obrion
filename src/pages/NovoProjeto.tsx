@@ -185,7 +185,11 @@ export default function NovoProjeto() {
           </Button>
         </div>
 
-        {fracoes.map((fracao, idx) => (
+        {fracoes.map((fracao, idx) => {
+          const countByTipo: Record<string, number> = {};
+          for (const d of fracao.divisoes) countByTipo[d.tipo] = (countByTipo[d.tipo] ?? 0) + 1;
+          const indexByTipo: Record<string, number> = {};
+          return (
           <Card key={fracao.id}>
             <CardContent className="pt-5">
               <div className="flex items-center justify-between mb-4">
@@ -246,10 +250,13 @@ export default function NovoProjeto() {
                   <span className="text-xs text-muted-foreground px-1">Área (m²)</span>
                   <span className="text-xs text-muted-foreground px-1">Pé direito (m)</span>
                   <span />
-                  {fracao.divisoes.map(divisao => (
+                  {fracao.divisoes.map(divisao => {
+                    indexByTipo[divisao.tipo] = (indexByTipo[divisao.tipo] ?? 0) + 1;
+                    const displayName = countByTipo[divisao.tipo] > 1 ? `${divisao.tipo} ${indexByTipo[divisao.tipo]}` : divisao.tipo;
+                    return (
                     <>
                       <Select key={divisao.id + '-tipo'} value={divisao.tipo} onValueChange={v => atualizarDivisao(fracao.id, divisao.id, { tipo: v as TipoDivisao })}>
-                        <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
+                        <SelectTrigger className="h-9 text-sm"><span className="truncate">{displayName}</span></SelectTrigger>
                         <SelectContent>
                           {TIPOS_DIVISAO.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
                         </SelectContent>
@@ -280,7 +287,7 @@ export default function NovoProjeto() {
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </>
-                  ))}
+                  ); })}
                 </div>
               )}
               {fracao.divisoes.length === 0 && (
@@ -288,7 +295,8 @@ export default function NovoProjeto() {
               )}
             </CardContent>
           </Card>
-        ))}
+          );
+        })}
 
         <div className="flex justify-end gap-3 pt-2">
           <Link to="/">

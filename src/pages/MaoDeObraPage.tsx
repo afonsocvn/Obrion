@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import { MaoDeObra, CATEGORIAS_MAO_DE_OBRA } from '@/types/project';
 import { v4, formatCurrency } from '@/lib/utils';
@@ -36,8 +36,11 @@ export default function MaoDeObraPage() {
   const [showForm, setShowForm] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [editItem, setEditItem] = useState<MaoDeObra | null>(null);
-  const [filtroCategoria, setFiltroCategoria] = useState('todas');
-  const [pesquisa, setPesquisa] = useState('');
+  const [filtroCategoria, setFiltroCategoria] = useState(() => sessionStorage.getItem('mo_cat') ?? 'todas');
+  const [pesquisa, setPesquisa] = useState(() => sessionStorage.getItem('mo_search') ?? '');
+
+  useEffect(() => { sessionStorage.setItem('mo_cat', filtroCategoria); }, [filtroCategoria]);
+  useEffect(() => { sessionStorage.setItem('mo_search', pesquisa); }, [pesquisa]);
 
   const filtrados = useMemo(() => maoDeObra.filter(m => {
     const matchCat = filtroCategoria === 'todas' || m.categoria === filtroCategoria;

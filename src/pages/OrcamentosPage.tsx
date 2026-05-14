@@ -828,9 +828,9 @@ export default function OrcamentosPage() {
   const topProjetos = _allProjetos.filter(p => p.tipo === 'projeto');
   const workspaceId                 = activeWorkspace?.id ?? null;
 
-  // Navigation — restore from sessionStorage on mount so page changes don't lose position
+  // Navigation — restore from localStorage on mount so closing/reopening the site restores position
   const NAV_KEY = 'orc_nav';
-  const savedNav = (() => { try { return JSON.parse(sessionStorage.getItem(NAV_KEY) ?? '{}'); } catch { return {}; } })();
+  const savedNav = (() => { try { return JSON.parse(localStorage.getItem(NAV_KEY) ?? '{}'); } catch { return {}; } })();
   const STABLE_VIEWS: View[] = ['lista', 'orcamento', 'projeto', 'comparar-orc', 'comparar'];
   const initialView: View = STABLE_VIEWS.includes(savedNav.view) ? savedNav.view : 'lista';
 
@@ -841,7 +841,7 @@ export default function OrcamentosPage() {
   // Persist nav state so leaving and returning to this page restores position
   useEffect(() => {
     if (STABLE_VIEWS.includes(view)) {
-      sessionStorage.setItem(NAV_KEY, JSON.stringify({ view, orcId: selectedOrcId, projId: selectedProjId }));
+      localStorage.setItem(NAV_KEY, JSON.stringify({ view, orcId: selectedOrcId, projId: selectedProjId }));
     }
   }, [view, selectedOrcId, selectedProjId]); // eslint-disable-line react-hooks/exhaustive-deps
 

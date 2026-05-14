@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from 'react';
+import { useState, useRef, useMemo, useEffect } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import { Material, GamaMaterial, CATEGORIAS_MATERIAL, TIPOS_MATERIAL } from '@/types/project';
 import { v4, formatCurrency } from '@/lib/utils';
@@ -58,10 +58,15 @@ export default function MateriaisPage() {
   const [showForm, setShowForm] = useState(false);
   const [editMaterial, setEditMaterial] = useState<Material | null>(null);
   const [showImport, setShowImport] = useState(false);
-  const [filtroCategoria, setFiltroCategoria] = useState('todas');
-  const [filtroMaterial, setFiltroMaterial] = useState('todos');
-  const [filtroFornecedor, setFiltroFornecedor] = useState('todos');
-  const [pesquisa, setPesquisa] = useState('');
+  const [filtroCategoria, setFiltroCategoria] = useState(() => sessionStorage.getItem('mat_cat') ?? 'todas');
+  const [filtroMaterial, setFiltroMaterial] = useState(() => sessionStorage.getItem('mat_mat') ?? 'todos');
+  const [filtroFornecedor, setFiltroFornecedor] = useState(() => sessionStorage.getItem('mat_forn') ?? 'todos');
+  const [pesquisa, setPesquisa] = useState(() => sessionStorage.getItem('mat_search') ?? '');
+
+  useEffect(() => { sessionStorage.setItem('mat_cat', filtroCategoria); }, [filtroCategoria]);
+  useEffect(() => { sessionStorage.setItem('mat_mat', filtroMaterial); }, [filtroMaterial]);
+  useEffect(() => { sessionStorage.setItem('mat_forn', filtroFornecedor); }, [filtroFornecedor]);
+  useEffect(() => { sessionStorage.setItem('mat_search', pesquisa); }, [pesquisa]);
 
   const tiposDisponiveis = filtroCategoria !== 'todas' ? (TIPOS_MATERIAL[filtroCategoria] ?? []) : [];
 
