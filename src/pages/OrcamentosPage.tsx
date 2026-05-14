@@ -597,45 +597,48 @@ function TreemapCapitulos({ caps, total, height = 280 }: {
 
   if (data.length === 0) return <p className="text-xs text-muted-foreground text-center py-6">Sem dados.</p>;
 
-  const CustomContent = (props: any) => {
-    const { x, y, width, height: h, name, pct, color, size } = props;
-    if (!width || !h || width < 20 || h < 16) return null;
-    const label = `${name}`;
-    const showPct = h > 28 && width > 36;
-    const showVal = h > 42 && width > 60;
-    return (
-      <g>
-        <rect x={x} y={y} width={width} height={h} fill={color} rx={3} ry={3} stroke="#fff" strokeWidth={1.5} />
-        <text x={x + width / 2} y={y + (showPct ? h / 2 - 6 : h / 2 + 4)} textAnchor="middle" fill="#fff"
-          fontSize={Math.min(12, Math.max(8, width / 6))} fontWeight={700}>
-          {label}
-        </text>
-        {showPct && (
-          <text x={x + width / 2} y={y + h / 2 + 8} textAnchor="middle" fill="rgba(255,255,255,0.9)"
-            fontSize={Math.min(10, Math.max(7, width / 8))}>
-            {pct.toFixed(1)}%
-          </text>
-        )}
-        {showVal && (
-          <text x={x + width / 2} y={y + h / 2 + 22} textAnchor="middle" fill="rgba(255,255,255,0.8)"
-            fontSize={Math.min(9, Math.max(6, width / 9))}>
-            {formatCurrency(size)}
-          </text>
-        )}
-      </g>
-    );
-  };
-
   return (
     <ResponsiveContainer width="100%" height={height}>
       <Treemap
         data={data}
         dataKey="size"
-        content={<CustomContent />}
+        content={(props: any) => {
+          const { x, y, width, height: h, name, pct, color, size } = props ?? {};
+          if (!x && x !== 0) return null;
+          if (!width || !h || width < 20 || h < 16) return null;
+          const safePct: number = typeof pct === 'number' ? pct : 0;
+          const safeColor: string = color ?? TREEMAP_COLORS[0];
+          const showPct = h > 28 && width > 36;
+          const showVal = h > 42 && width > 60;
+          return (
+            <g>
+              <rect x={x} y={y} width={width} height={h} fill={safeColor} rx={3} ry={3} stroke="#fff" strokeWidth={1.5} />
+              <text x={x + width / 2} y={y + (showPct ? h / 2 - 6 : h / 2 + 4)} textAnchor="middle" fill="#fff"
+                fontSize={Math.min(12, Math.max(8, width / 6))} fontWeight={700}>
+                {name ?? ''}
+              </text>
+              {showPct && (
+                <text x={x + width / 2} y={y + h / 2 + 8} textAnchor="middle" fill="rgba(255,255,255,0.9)"
+                  fontSize={Math.min(10, Math.max(7, width / 8))}>
+                  {safePct.toFixed(1)}%
+                </text>
+              )}
+              {showVal && size != null && (
+                <text x={x + width / 2} y={y + h / 2 + 22} textAnchor="middle" fill="rgba(255,255,255,0.8)"
+                  fontSize={Math.min(9, Math.max(6, width / 9))}>
+                  {formatCurrency(size)}
+                </text>
+              )}
+            </g>
+          );
+        }}
       >
         <Tooltip
-          formatter={(v: number, _: string, props: any) =>
-            [`${formatCurrency(v)} (${props.payload?.pct?.toFixed(1)}%)`, props.payload?.name ?? '']}
+          formatter={(v: number, _: string, entry: any) => {
+            const payload = entry?.payload ?? {};
+            const p: number = typeof payload.pct === 'number' ? payload.pct : 0;
+            return [`${formatCurrency(v)} (${p.toFixed(1)}%)`, payload.name ?? ''];
+          }}
           contentStyle={{ fontSize: 11 }}
         />
       </Treemap>
