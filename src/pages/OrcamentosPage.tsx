@@ -24,6 +24,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, Cell,
   LineChart, Line, ReferenceLine,
+  Treemap,
 } from 'recharts';
 import { parsePDF } from '@/lib/pdfParser';
 
@@ -542,6 +543,77 @@ const FIC_COLORS = [
   'bg-blue-400', 'bg-green-500', 'bg-orange-400', 'bg-purple-500', 'bg-pink-400',
 ];
 const ORC_PALETTE = ['#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
+
+const TREEMAP_COLORS = [
+  '#3b82f6','#22c55e','#f59e0b','#ef4444','#8b5cf6','#ec4899',
+  '#06b6d4','#84cc16','#f97316','#a855f7','#14b8a6','#eab308',
+  '#6366f1','#10b981','#fb923c','#e879f9','#38bdf8','#4ade80',
+];
+
+interface TreemapCapData { name: string; size: number; pct: number; color: string; }
+
+function TreemapCapitulos({ caps, total, height = 280 }: {
+  caps: { numero: string; descricao: string; total: number }[];
+  total: number;
+  height?: number;
+}) {
+  const data: TreemapCapData[] = caps
+    .filter(c => c.total > 0)
+    .sort((a, b) => b.total - a.total)
+    .map((c, i) => ({
+      name: `${c.numero}`,
+      size: c.total,
+      pct: total > 0 ? (c.total / total) * 100 : 0,
+      color: TREEMAP_COLORS[i % TREEMAP_COLORS.length],
+    }));
+
+  if (data.length === 0) return <p className="text-xs text-muted-foreground text-center py-6">Sem dados.</p>;
+
+  const CustomContent = (props: any) => {
+    const { x, y, width, height: h, name, pct, color, size } = props;
+    if (!width || !h || width < 20 || h < 16) return null;
+    const label = `${name}`;
+    const showPct = h > 28 && width > 36;
+    const showVal = h > 42 && width > 60;
+    return (
+      <g>
+        <rect x={x} y={y} width={width} height={h} fill={color} rx={3} ry={3} stroke="#fff" strokeWidth={1.5} />
+        <text x={x + width / 2} y={y + (showPct ? h / 2 - 6 : h / 2 + 4)} textAnchor="middle" fill="#fff"
+          fontSize={Math.min(12, Math.max(8, width / 6))} fontWeight={700}>
+          {label}
+        </text>
+        {showPct && (
+          <text x={x + width / 2} y={y + h / 2 + 8} textAnchor="middle" fill="rgba(255,255,255,0.9)"
+            fontSize={Math.min(10, Math.max(7, width / 8))}>
+            {pct.toFixed(1)}%
+          </text>
+        )}
+        {showVal && (
+          <text x={x + width / 2} y={y + h / 2 + 22} textAnchor="middle" fill="rgba(255,255,255,0.8)"
+            fontSize={Math.min(9, Math.max(6, width / 9))}>
+            {formatCurrency(size)}
+          </text>
+        )}
+      </g>
+    );
+  };
+
+  return (
+    <ResponsiveContainer width="100%" height={height}>
+      <Treemap
+        data={data}
+        dataKey="size"
+        content={<CustomContent />}
+      >
+        <Tooltip
+          formatter={(v: number, _: string, props: any) =>
+            [`${formatCurrency(v)} (${props.payload?.pct?.toFixed(1)}%)`, props.payload?.name ?? '']}
+          contentStyle={{ fontSize: 11 }}
+        />
+      </Treemap>
+    </ResponsiveContainer>
+  );
+}
 
 // ─── LinhaTreeTable ───────────────────────────────────────────────────────────
 
@@ -2010,6 +2082,9 @@ export default function OrcamentosPage() {
         @media print {
           @page { margin: 12mm 14mm; size: A4 portrait; }
 
+          /* Force color printing */
+          * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+
           /* Hide everything except the print area */
           body { visibility: hidden !important; background: white !important; }
           #analise-print-area { visibility: visible !important; position: absolute; inset: 0; }
@@ -2565,6 +2640,27 @@ export default function OrcamentosPage() {
             </ResponsiveContainer>
           </CardContent>
         </Card>}
+
+        {/* Treemap de capítulos — médias dos orçamentos seleccionados */}
+        {temProjsSel && allCaps.length > 0 && (
+          <Card className="mb-6">
+            <CardHeader className="pb-2 pt-4 px-5">
+              <CardTitle className="text-sm font-semibold">Distribuição por Capítulo</CardTitle>
+            </CardHeader>
+            <CardContent className="pb-4 px-5">
+              <TreemapCapitulos
+                caps={allCaps.map(cap => ({
+                  numero: cap,
+                  descricao: capDescricao[cap] ?? '',
+                  total: Math.round(projsSel.reduce((s, p) => s + getAdjustedCapVal(p, cap), 0) / projsSel.length),
+                }))}
+                total={Math.round(allCaps.reduce((s, cap) =>
+                  s + projsSel.reduce((ss, p) => ss + getAdjustedCapVal(p, cap), 0) / projsSel.length, 0))}
+                height={300}
+              />
+            </CardContent>
+          </Card>
+        )}
 
         {/* Chapter comparison table — expandable + mean/diff */}
         {temProjsSel && allCaps.length > 0 && (() => {
@@ -3748,6 +3844,54 @@ export default function OrcamentosPage() {
         .map(l => ({ ...l, numero: l.numero ? normalizeNumero(l.numero) : l.numero, nivel: getNivel(l.numero) }))
     );
 
+    const printProjeto = () => {
+      const existing = document.getElementById('__projeto_print_style');
+      if (existing) existing.remove();
+      const style = document.createElement('style');
+      style.id = '__projeto_print_style';
+      style.textContent = `
+        @media print {
+          @page { margin: 12mm 14mm; size: A4 portrait; }
+          body { visibility: hidden !important; background: white !important; }
+          #projeto-print-area { visibility: visible !important; position: absolute; inset: 0; }
+          #projeto-print-area * { visibility: visible !important; }
+          #projeto-print-area { font-size: 9.5px !important; line-height: 1.4 !important; color: #111827 !important; width: 100% !important; }
+          #projeto-print-area button, #projeto-print-area [role="button"],
+          #projeto-print-area [data-radix-select-trigger], #projeto-print-area select { display: none !important; }
+          #projeto-print-area [class*="rounded"] { break-inside: avoid; page-break-inside: avoid; border: 1px solid #e5e7eb !important; box-shadow: none !important; margin-bottom: 5mm !important; }
+          #projeto-print-area table { border-collapse: collapse !important; width: 100% !important; font-size: 8.5px !important; }
+          #projeto-print-area thead { display: table-header-group; }
+          #projeto-print-area th { background: #f1f5f9 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; padding: 3px 6px !important; border: 1px solid #cbd5e1 !important; font-weight: 600 !important; }
+          #projeto-print-area td { padding: 2.5px 6px !important; border: 1px solid #e2e8f0 !important; }
+          #projeto-print-area tbody tr:nth-child(even) { background: #f8fafc !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          #projeto-print-area .recharts-responsive-container { break-inside: avoid !important; overflow: visible !important; }
+          #projeto-print-area .recharts-wrapper { overflow: visible !important; }
+          #projeto-print-area [class*="text-green"] { color: #15803d !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          #projeto-print-area [class*="text-red"]   { color: #b91c1c !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          #projeto-print-area [class*="text-blue"]  { color: #1d4ed8 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          #projeto-print-area [class*="text-purple"]{ color: #7c3aed !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          #projeto-print-area [class*="bg-green"]   { background-color: #dcfce7 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          #projeto-print-area [class*="bg-red"]     { background-color: #fee2e2 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          #projeto-print-area [class*="bg-blue"]    { background-color: #dbeafe !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          #projeto-print-area [class*="bg-slate"]   { background-color: #f1f5f9 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          #projeto-print-area [class*="text-sm"]  { font-size: 9px !important; }
+          #projeto-print-area [class*="text-xs"]  { font-size: 8px !important; }
+          #projeto-print-area [class*="text-lg"]  { font-size: 12px !important; }
+          #projeto-print-area [class*="text-xl"]  { font-size: 13px !important; }
+          #projeto-print-area [class*="text-2xl"] { font-size: 15px !important; }
+          #projeto-print-area [class*="px-5"] { padding-left: 8px !important; padding-right: 8px !important; }
+          #projeto-print-area [class*="px-4"] { padding-left: 6px !important; padding-right: 6px !important; }
+          #projeto-print-area [class*="py-4"] { padding-top: 4px !important; padding-bottom: 4px !important; }
+          #projeto-print-area [class*="mb-5"] { margin-bottom: 4mm !important; }
+          #projeto-print-area [class*="mb-6"] { margin-bottom: 5mm !important; }
+          rect[fill], path[fill] { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+        }
+      `;
+      document.head.appendChild(style);
+      window.print();
+      setTimeout(() => style.remove(), 3000);
+    };
+
     return (
       <div className="page-container animate-fade-in">
         <div className="flex items-center gap-3 mb-6">
@@ -3759,8 +3903,12 @@ export default function OrcamentosPage() {
             { label: selectedOrc?.nome ?? '', onClick: voltarOrcamento },
             { label: selectedProj.nome },
           ]} />
+          <Button variant="outline" size="sm" className="ml-auto gap-1.5 h-7 text-xs" onClick={printProjeto}>
+            <FileDown className="h-3 w-3" /> PDF
+          </Button>
         </div>
 
+        <div id="projeto-print-area">
         {/* Editable title */}
         <div className="mb-5">
           <EditableTitle
@@ -3805,6 +3953,32 @@ export default function OrcamentosPage() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Treemap de capítulos */}
+        {totalProj > 0 && (() => {
+          const capsTreemap = selectedProj.tipo === 'cenario' && selectedProj.cenarioConfig
+            ? (() => {
+                const ocultos = new Set(selectedProj.cenarioConfig.capitulosOcultos ?? []);
+                const alt = selectedProj.cenarioConfig.alteracoes ?? [];
+                return selectedProj.cenarioConfig.capitulos
+                  .filter(c => !ocultos.has(c.numero))
+                  .map(c => ({ numero: c.numero, descricao: c.descricao, total: getCenarioCapituloTotal(c, alt) }));
+              })()
+            : getCapTotaisAll(selectedProj)
+                .filter(c => c.nivel === 1)
+                .map(c => ({ numero: c.numero, descricao: c.descricao, total: c.total }));
+          if (capsTreemap.length === 0) return null;
+          return (
+            <Card className="mb-4">
+              <CardHeader className="pb-2 pt-3 px-4">
+                <CardTitle className="text-sm font-semibold">Distribuição por Capítulo</CardTitle>
+              </CardHeader>
+              <CardContent className="pb-3 px-4">
+                <TreemapCapitulos caps={capsTreemap} total={totalProj} height={260} />
+              </CardContent>
+            </Card>
+          );
+        })()}
 
         {/* Cenario editor — replaces upload/files for cenario type */}
         {selectedProj.tipo === 'cenario' && selectedProj.cenarioConfig && (() => {
@@ -4310,6 +4484,7 @@ export default function OrcamentosPage() {
             )}
           </>
         )}
+        </div>{/* end #projeto-print-area */}
       </div>
     );
   }
