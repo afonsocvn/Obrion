@@ -550,6 +550,34 @@ const TREEMAP_COLORS = [
   '#6366f1','#10b981','#fb923c','#e879f9','#38bdf8','#4ade80',
 ];
 
+// ─── ChartCard — card com toggle ocultar/mostrar ─────────────────────────────
+function ChartCard({ id, title, children, hidden, onToggle, className, headerExtra }: {
+  id: string; title: React.ReactNode; children: React.ReactNode;
+  hidden: boolean; onToggle: (id: string) => void;
+  className?: string; headerExtra?: React.ReactNode;
+}) {
+  return (
+    <Card className={cn(className, hidden && 'border-dashed')} data-hidden-chart={hidden ? 'true' : undefined}>
+      <CardHeader className="pb-2 pt-3 px-4">
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className={cn('text-sm font-semibold', hidden && 'text-muted-foreground/40 line-through')}>
+            {title}
+          </CardTitle>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {!hidden && headerExtra}
+            <button onClick={() => onToggle(id)}
+              title={hidden ? 'Mostrar gráfico' : 'Ocultar gráfico'}
+              className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground/50 hover:text-foreground transition-colors">
+              {hidden ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+            </button>
+          </div>
+        </div>
+      </CardHeader>
+      {!hidden && <CardContent className="pb-4 px-4">{children}</CardContent>}
+    </Card>
+  );
+}
+
 interface TreemapCapData { name: string; size: number; pct: number; color: string; }
 
 function TreemapCapitulos({ caps, total, height = 280 }: {
@@ -1077,6 +1105,9 @@ export default function OrcamentosPage() {
 
   // Projeto sub-view
   const [projetoModo, setProjetoModo] = useState<'ficheiros' | 'consolidado'>('consolidado');
+  const [hiddenCharts, setHiddenCharts] = useState<Set<string>>(new Set());
+  const toggleHiddenChart = (id: string) =>
+    setHiddenCharts(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
   const [expandedCenarioCaps, setExpandedCenarioCaps] = useState<Set<string>>(new Set());
   const toggleCenarioCap = (num: string) =>
     setExpandedCenarioCaps(prev => { const s = new Set(prev); s.has(num) ? s.delete(num) : s.add(num); return s; });
@@ -2084,6 +2115,8 @@ export default function OrcamentosPage() {
 
           /* Force color printing */
           * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+          /* Hidden charts: never print */
+          [data-hidden-chart="true"] { display: none !important; }
 
           /* Hide everything except the print area */
           body { visibility: hidden !important; background: white !important; }
@@ -2416,14 +2449,10 @@ export default function OrcamentosPage() {
 
         {/* ── Estatísticas (mesma versão) ── */}
         {projsSel.length > 0 && mesmaVersao && stats && (
-          <Card className="mb-6 border-blue-200 bg-blue-50/30">
-            <CardHeader className="pb-2 pt-4 px-5">
-              <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <BarChart2 className="h-4 w-4 text-blue-600" />
-                Estatísticas — {versoesSel.size === 1 ? [...versoesSel][0] : 'sem versão definida'}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pb-4 px-5">
+          <ChartCard id="estatisticas" className="mb-6 border-blue-200 bg-blue-50/30"
+            hidden={hiddenCharts.has('estatisticas')} onToggle={toggleHiddenChart}
+            title={<span className="flex items-center gap-2"><BarChart2 className="h-4 w-4 text-blue-600" />Estatísticas — {versoesSel.size === 1 ? [...versoesSel][0] : 'sem versão definida'}</span>}>
+
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 {[
                   { label: 'Média',   val: stats.media,   color: 'text-blue-700' },
@@ -2474,27 +2503,18 @@ export default function OrcamentosPage() {
                   </div>
                 </div>
               )}
-            </CardContent>
-          </Card>
+          </ChartCard>
         )}
 
         {/* ── Evolução entre versões ── */}
         {temProjsSel && isEvolucao && progressao.length >= 2 && (
-          <Card className="mb-6">
-            <CardHeader className="pb-2 pt-4 px-5">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-sm font-semibold">Evolução por Versão</CardTitle>
-                <div className={cn('flex items-center gap-1.5 text-sm font-bold px-3 py-1 rounded-full',
-                  evolDeltaAbs > 0 ? 'bg-red-50 text-red-600' : evolDeltaAbs < 0 ? 'bg-green-50 text-green-600' : 'bg-muted text-muted-foreground')}>
-                  {evolDeltaAbs > 0 ? '▲' : evolDeltaAbs < 0 ? '▼' : '='}{' '}
-                  {formatCurrency(Math.abs(evolDeltaAbs))}
-                  <span className="font-normal text-xs opacity-75 ml-1">
-                    ({evolDeltaPct > 0 ? '+' : ''}{evolDeltaPct.toFixed(1)}% total)
-                  </span>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="pb-4 px-5">
+          <ChartCard id="evolucao" className="mb-6" hidden={hiddenCharts.has('evolucao')} onToggle={toggleHiddenChart}
+            title="Evolução por Versão"
+            headerExtra={<div className={cn('flex items-center gap-1.5 text-sm font-bold px-3 py-1 rounded-full',
+              evolDeltaAbs > 0 ? 'bg-red-50 text-red-600' : evolDeltaAbs < 0 ? 'bg-green-50 text-green-600' : 'bg-muted text-muted-foreground')}>
+              {evolDeltaAbs > 0 ? '▲' : evolDeltaAbs < 0 ? '▼' : '='}{' '}{formatCurrency(Math.abs(evolDeltaAbs))}
+              <span className="font-normal text-xs opacity-75 ml-1">({evolDeltaPct > 0 ? '+' : ''}{evolDeltaPct.toFixed(1)}% total)</span>
+            </div>}>
               {/* Line chart */}
               <ResponsiveContainer width="100%" height={200}>
                 <LineChart data={progressaoChartData} margin={{ left: 10, right: 30, top: 10 }}>
@@ -2587,8 +2607,7 @@ export default function OrcamentosPage() {
                   </tbody>
                 </table>
               </div>
-            </CardContent>
-          </Card>
+          </ChartCard>
         )}
 
         {/* Summary cards — only show in competitor mode; in evolution mode the line chart is the summary */}
@@ -2620,11 +2639,8 @@ export default function OrcamentosPage() {
         </div>}
 
         {/* Bar chart: Totais — only in competitor mode */}
-        {temProjsSel && !isEvolucao && <Card className="mb-6">
-          <CardHeader className="pb-2 pt-4 px-5">
-            <CardTitle className="text-sm font-semibold">Total por Orçamento</CardTitle>
-          </CardHeader>
-          <CardContent className="pb-4 px-5">
+        {temProjsSel && !isEvolucao && (
+          <ChartCard id="total-orcamento" className="mb-6" hidden={hiddenCharts.has('total-orcamento')} onToggle={toggleHiddenChart} title="Total por Orçamento">
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={totaisChartData} margin={{ left: 10, right: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -2638,28 +2654,22 @@ export default function OrcamentosPage() {
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
-          </CardContent>
-        </Card>}
+          </ChartCard>
+        )}
 
-        {/* Treemap de capítulos — médias dos orçamentos seleccionados */}
+        {/* Treemap de capítulos */}
         {temProjsSel && allCaps.length > 0 && (
-          <Card className="mb-6">
-            <CardHeader className="pb-2 pt-4 px-5">
-              <CardTitle className="text-sm font-semibold">Distribuição por Capítulo</CardTitle>
-            </CardHeader>
-            <CardContent className="pb-4 px-5">
-              <TreemapCapitulos
-                caps={allCaps.map(cap => ({
-                  numero: cap,
-                  descricao: capDescricao[cap] ?? '',
-                  total: Math.round(projsSel.reduce((s, p) => s + getAdjustedCapVal(p, cap), 0) / projsSel.length),
-                }))}
-                total={Math.round(allCaps.reduce((s, cap) =>
-                  s + projsSel.reduce((ss, p) => ss + getAdjustedCapVal(p, cap), 0) / projsSel.length, 0))}
-                height={300}
-              />
-            </CardContent>
-          </Card>
+          <ChartCard id="treemap-analise" className="mb-6" hidden={hiddenCharts.has('treemap-analise')} onToggle={toggleHiddenChart} title="Distribuição por Capítulo">
+            <TreemapCapitulos
+              caps={allCaps.map(cap => ({
+                numero: cap, descricao: capDescricao[cap] ?? '',
+                total: Math.round(projsSel.reduce((s, p) => s + getAdjustedCapVal(p, cap), 0) / projsSel.length),
+              }))}
+              total={Math.round(allCaps.reduce((s, cap) =>
+                s + projsSel.reduce((ss, p) => ss + getAdjustedCapVal(p, cap), 0) / projsSel.length, 0))}
+              height={300}
+            />
+          </ChartCard>
         )}
 
         {/* Chapter comparison table — expandable + mean/diff */}
@@ -2672,27 +2682,33 @@ export default function OrcamentosPage() {
           const adjStats     = getEstatisticas(adjTotais);
           return (
           <>
-          <Card className="mb-6">
+          <Card className="mb-6" data-hidden-chart={hiddenCharts.has('comp-capitulo') ? 'true' : undefined}>
             <CardHeader className="pb-2 pt-4 px-5">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-sm font-semibold">Comparação por Capítulo</CardTitle>
+                <CardTitle className={cn('text-sm font-semibold', hiddenCharts.has('comp-capitulo') && 'text-muted-foreground/40 line-through')}>Comparação por Capítulo</CardTitle>
                 <div className="flex items-center gap-2">
-                  {ignoredCaps.size > 0 && (
-                    <button onClick={() => setIgnoredCaps(new Set())}
-                      className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors">
-                      <Eye className="h-3 w-3" /> Mostrar todos ({ignoredCaps.size} ocultos)
-                    </button>
-                  )}
-                  {ignoredCaps.size < allCaps.length && (
-                    <button onClick={() => setIgnoredCaps(new Set(allCaps))}
-                      className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors">
-                      <EyeOff className="h-3 w-3" /> Ocultar todos
-                    </button>
-                  )}
+                  {!hiddenCharts.has('comp-capitulo') && <>
+                    {ignoredCaps.size > 0 && (
+                      <button onClick={() => setIgnoredCaps(new Set())}
+                        className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors">
+                        <Eye className="h-3 w-3" /> Mostrar todos ({ignoredCaps.size} ocultos)
+                      </button>
+                    )}
+                    {ignoredCaps.size < allCaps.length && (
+                      <button onClick={() => setIgnoredCaps(new Set(allCaps))}
+                        className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors">
+                        <EyeOff className="h-3 w-3" /> Ocultar todos
+                      </button>
+                    )}
+                  </>}
+                  <button onClick={() => toggleHiddenChart('comp-capitulo')} title={hiddenCharts.has('comp-capitulo') ? 'Mostrar' : 'Ocultar'}
+                    className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground/50 hover:text-foreground transition-colors">
+                    {hiddenCharts.has('comp-capitulo') ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                  </button>
                 </div>
               </div>
             </CardHeader>
-            <div className="overflow-auto">
+            {!hiddenCharts.has('comp-capitulo') && <div className="overflow-auto">
               <table className="w-full text-xs border-collapse">
                 <thead>
                   <tr className="bg-muted/50 border-b text-muted-foreground">
@@ -3030,7 +3046,7 @@ export default function OrcamentosPage() {
                   </tr>
                 </tbody>
               </table>
-            </div>
+            </div>}
           </Card>
 
           {/* Chapter evolution line chart — only in evolution mode */}
@@ -3051,18 +3067,8 @@ export default function OrcamentosPage() {
             });
             const chartH = Math.max(220, activeCaps.length > 6 ? 260 : 220);
             return (
-              <Card className="mt-4 mb-6">
-                <CardHeader className="pb-2 pt-4 px-5">
-                  <CardTitle className="text-sm font-semibold">
-                    Evolução por Capítulo
-                    {activeCaps.length < allCaps.length && (
-                      <span className="ml-2 text-[11px] font-normal text-muted-foreground">
-                        {activeCaps.length} de {allCaps.length} capítulos visíveis
-                      </span>
-                    )}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="pb-4 px-5">
+              <ChartCard id="evolucao-capitulo" className="mt-4 mb-6" hidden={hiddenCharts.has('evolucao-capitulo')} onToggle={toggleHiddenChart}
+                title={<>Evolução por Capítulo{activeCaps.length < allCaps.length && <span className="ml-2 text-[11px] font-normal text-muted-foreground">{activeCaps.length} de {allCaps.length} visíveis</span>}</>}>
                   <ResponsiveContainer width="100%" height={chartH}>
                     <LineChart data={capEvolData} margin={{ left: 10, right: 20, top: 10 }}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -3086,8 +3092,7 @@ export default function OrcamentosPage() {
                       ))}
                     </LineChart>
                   </ResponsiveContainer>
-                </CardContent>
-              </Card>
+              </ChartCard>
             );
           })()}
           </>
@@ -3096,11 +3101,7 @@ export default function OrcamentosPage() {
 
         {/* Chapter grouped bar chart */}
         {temProjsSel && allCaps.length > 0 && (
-          <Card className="mb-6">
-            <CardHeader className="pb-2 pt-4 px-5">
-              <CardTitle className="text-sm font-semibold">Distribuição por Capítulo</CardTitle>
-            </CardHeader>
-            <CardContent className="pb-4 px-5">
+          <ChartCard id="bar-capitulo" className="mb-6" hidden={hiddenCharts.has('bar-capitulo')} onToggle={toggleHiddenChart} title="Distribuição por Capítulo">
               <ResponsiveContainer width="100%" height={Math.max(200, allCaps.length * 40)}>
                 <BarChart
                   data={capChartData}
@@ -3121,17 +3122,12 @@ export default function OrcamentosPage() {
                   ))}
                 </BarChart>
               </ResponsiveContainer>
-            </CardContent>
-          </Card>
+          </ChartCard>
         )}
 
         {/* Price per m² chart */}
         {temProjsSel && temM2 && (
-          <Card className="mb-6">
-            <CardHeader className="pb-2 pt-4 px-5">
-              <CardTitle className="text-sm font-semibold">Custo por m² ({m2Val} m²)</CardTitle>
-            </CardHeader>
-            <CardContent className="pb-4 px-5">
+          <ChartCard id="custo-m2" className="mb-6" hidden={hiddenCharts.has('custo-m2')} onToggle={toggleHiddenChart} title={`Custo por m² (${m2Val} m²)`}>
               <ResponsiveContainer width="100%" height={160}>
                 <BarChart data={totaisChartData} margin={{ left: 10, right: 10 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -3145,8 +3141,7 @@ export default function OrcamentosPage() {
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
-            </CardContent>
-          </Card>
+          </ChartCard>
         )}
 
         {/* ── Custo por Fração ── */}
@@ -3176,11 +3171,12 @@ export default function OrcamentosPage() {
           const custoM2 = refTotal / totalFracM2;
           const hasQtd = fracoes.some(f => (f.quantidade ?? 1) > 1);
           return (
-            <Card className="mb-6">
+            <Card className="mb-6" data-hidden-chart={hiddenCharts.has('custo-fracao') ? 'true' : undefined}>
               <CardHeader className="pb-2 pt-4 px-5">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm font-semibold">Custo por Fração</CardTitle>
-                  {versoesDispFrac.length > 1 && (
+                  <CardTitle className={cn('text-sm font-semibold', hiddenCharts.has('custo-fracao') && 'text-muted-foreground/40 line-through')}>Custo por Fração</CardTitle>
+                  <div className="flex items-center gap-2">
+                  {!hiddenCharts.has('custo-fracao') && versoesDispFrac.length > 1 && (
                     <div className="flex items-center gap-1.5">
                       <span className="text-[11px] text-muted-foreground">Versão:</span>
                       <div className="flex gap-1">
@@ -3199,9 +3195,14 @@ export default function OrcamentosPage() {
                       </div>
                     </div>
                   )}
+                  <button onClick={() => toggleHiddenChart('custo-fracao')} title={hiddenCharts.has('custo-fracao') ? 'Mostrar' : 'Ocultar'}
+                    className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground/50 hover:text-foreground transition-colors">
+                    {hiddenCharts.has('custo-fracao') ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                  </button>
+                  </div>
                 </div>
               </CardHeader>
-              <CardContent className="pb-4 px-5">
+              {!hiddenCharts.has('custo-fracao') && <CardContent className="pb-4 px-5">
                 <p className="text-[11px] text-muted-foreground mb-3">
                   Base: {formatCurrency(Math.round(refTotal))} ({versaoEfetiva ?? 'versão activa'}) · {formatCurrency(Math.round(custoM2))}/m² · {totalFracM2} m² total
                 </p>
@@ -3249,7 +3250,7 @@ export default function OrcamentosPage() {
                     </tfoot>
                   </table>
                 </div>
-              </CardContent>
+              </CardContent>}
             </Card>
           );
         })()}
@@ -3885,6 +3886,7 @@ export default function OrcamentosPage() {
           #projeto-print-area [class*="mb-5"] { margin-bottom: 4mm !important; }
           #projeto-print-area [class*="mb-6"] { margin-bottom: 5mm !important; }
           rect[fill], path[fill] { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+          [data-hidden-chart="true"] { display: none !important; }
         }
       `;
       document.head.appendChild(style);
@@ -3969,14 +3971,9 @@ export default function OrcamentosPage() {
                 .map(c => ({ numero: c.numero, descricao: c.descricao, total: c.total }));
           if (capsTreemap.length === 0) return null;
           return (
-            <Card className="mb-4">
-              <CardHeader className="pb-2 pt-3 px-4">
-                <CardTitle className="text-sm font-semibold">Distribuição por Capítulo</CardTitle>
-              </CardHeader>
-              <CardContent className="pb-3 px-4">
-                <TreemapCapitulos caps={capsTreemap} total={totalProj} height={260} />
-              </CardContent>
-            </Card>
+            <ChartCard id="treemap-projeto" className="mb-4" hidden={hiddenCharts.has('treemap-projeto')} onToggle={toggleHiddenChart} title="Distribuição por Capítulo">
+              <TreemapCapitulos caps={capsTreemap} total={totalProj} height={260} />
+            </ChartCard>
           );
         })()}
 
