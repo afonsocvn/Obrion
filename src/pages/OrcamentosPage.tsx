@@ -1145,6 +1145,7 @@ export default function OrcamentosPage() {
   const [compOrcExcluded, setCompOrcExcluded]   = useState<Set<string>>(new Set());
   const [compM2Field, setCompM2Field]           = useState<string>('');
   const [fracaoVersao, setFracaoVersao]         = useState<string>('__latest__');
+  const [treemapSource, setTreemapSource]       = useState<string>('__media__'); // '__media__' ou projId
 
   // Saved analyses
   const getAnaliseKey = (orcId: string) => `analises_${orcId}`;
@@ -2661,19 +2662,52 @@ export default function OrcamentosPage() {
         )}
 
         {/* Treemap de capítulos */}
-        {temProjsSel && allCaps.length > 0 && (
-          <ChartCard id="treemap-analise" className="mb-6" hidden={hiddenCharts.has('treemap-analise')} onToggle={toggleHiddenChart} title="Distribuição por Capítulo">
-            <TreemapCapitulos
-              caps={allCaps.map(cap => ({
-                numero: cap, descricao: capDescricao[cap] ?? '',
-                total: Math.round(projsSel.reduce((s, p) => s + getAdjustedCapVal(p, cap), 0) / projsSel.length),
-              }))}
-              total={Math.round(allCaps.reduce((s, cap) =>
-                s + projsSel.reduce((ss, p) => ss + getAdjustedCapVal(p, cap), 0) / projsSel.length, 0))}
-              height={300}
-            />
-          </ChartCard>
-        )}
+        {temProjsSel && allCaps.length > 0 && (() => {
+          // Ensure selected source still exists; if not, fall back to media
+          const srcProj = treemapSource !== '__media__' ? projsSel.find(p => p.id === treemapSource) : null;
+          const effectiveSource = srcProj ? treemapSource : '__media__';
+          const treemapCaps = allCaps.map(cap => ({
+            numero: cap, descricao: capDescricao[cap] ?? '',
+            total: effectiveSource === '__media__'
+              ? Math.round(projsSel.reduce((s, p) => s + getAdjustedCapVal(p, cap), 0) / projsSel.length)
+              : Math.round(getAdjustedCapVal(srcProj!, cap)),
+          }));
+          const treemapTotal = treemapCaps.reduce((s, c) => s + c.total, 0);
+          return (
+            <ChartCard id="treemap-analise" className="mb-6"
+              hidden={hiddenCharts.has('treemap-analise')} onToggle={toggleHiddenChart}
+              title="Distribuição por Capítulo"
+              headerExtra={
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setTreemapSource('__media__')}
+                    className={cn('px-2 py-0.5 rounded text-[10px] font-semibold border transition-colors',
+                      effectiveSource === '__media__'
+                        ? 'bg-slate-200 text-slate-700 border-slate-300'
+                        : 'bg-muted/40 text-muted-foreground border-muted/60 hover:bg-muted')}>
+                    Média
+                  </button>
+                  {projsSel.map((p, i) => (
+                    <button key={p.id}
+                      onClick={() => setTreemapSource(p.id)}
+                      className={cn('px-2 py-0.5 rounded text-[10px] font-semibold border transition-colors',
+                        effectiveSource === p.id
+                          ? 'border'
+                          : 'bg-muted/40 text-muted-foreground border-muted/60 hover:bg-muted')}
+                      style={effectiveSource === p.id ? {
+                        background: ORC_PALETTE[i % ORC_PALETTE.length] + '20',
+                        color: ORC_PALETTE[i % ORC_PALETTE.length],
+                        borderColor: ORC_PALETTE[i % ORC_PALETTE.length] + '80',
+                      } : {}}>
+                      {p.nome}{p.versao ? ` (${p.versao})` : ''}
+                    </button>
+                  ))}
+                </div>
+              }>
+              <TreemapCapitulos caps={treemapCaps} total={treemapTotal} height={300} />
+            </ChartCard>
+          );
+        })()}
 
         {/* Chapter comparison table — expandable + mean/diff */}
         {temProjsSel && allCaps.length > 0 && (() => {
