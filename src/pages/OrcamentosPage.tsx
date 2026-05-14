@@ -121,12 +121,14 @@ interface FilePendente {
 
 const LS_KEY      = 'orcamentos_v2';
 const DELETED_KEY = 'orc_deleted_ids';
-function loadDeletedIds(): Set<string> {
-  try { return new Set(JSON.parse(localStorage.getItem(DELETED_KEY) ?? '[]')); } catch { return new Set(); }
-}
+// Module-level set — survives component unmount/remount within the same browser session
+const _deletedIdsModule = new Set<string>(
+  (() => { try { return JSON.parse(localStorage.getItem(DELETED_KEY) ?? '[]'); } catch { return []; } })()
+);
+function loadDeletedIds(): Set<string> { return _deletedIdsModule; }
 function markDeletedId(id: string) {
-  const ids = loadDeletedIds(); ids.add(id);
-  localStorage.setItem(DELETED_KEY, JSON.stringify([...ids]));
+  _deletedIdsModule.add(id);
+  try { localStorage.setItem(DELETED_KEY, JSON.stringify([..._deletedIdsModule])); } catch {}
 }
 function loadOrcamentosLS(): Orcamento[] {
   try {
