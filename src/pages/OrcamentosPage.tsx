@@ -989,6 +989,9 @@ export default function OrcamentosPage() {
 
   // Projeto sub-view
   const [projetoModo, setProjetoModo] = useState<'ficheiros' | 'consolidado'>('consolidado');
+  const [expandedCenarioCaps, setExpandedCenarioCaps] = useState<Set<string>>(new Set());
+  const toggleCenarioCap = (num: string) =>
+    setExpandedCenarioCaps(prev => { const s = new Set(prev); s.has(num) ? s.delete(num) : s.add(num); return s; });
 
   // Local draft for orcamento characteristics (avoid auto-saving on every keystroke)
   const emptyCarac = { m2AcimaSolo: 0, m2AbaixoSolo: 0, numApartamentos: 0, m2Retalho: 0, m2AreasComuns: 0, m2Circulacao: 0, m2AreasTecnicas: 0, m2Terracos: 0 };
@@ -3681,11 +3684,6 @@ export default function OrcamentosPage() {
             const vals = baseProjs.map(p => getCapituloTotaisAll(p).find(c => c.numero === num)?.total ?? 0).filter(v => v > 0);
             val.mediaTotal = vals.length > 0 ? Math.round(vals.reduce((s, v) => s + v, 0) / vals.length) : 0;
           });
-
-          // Expanded chapters state (for subcap display in table)
-          const [expandedCenarioCaps, setExpandedCenarioCaps] = React.useState<Set<string>>(new Set());
-          const toggleCenarioCap = (num: string) =>
-            setExpandedCenarioCaps(prev => { const s = new Set(prev); s.has(num) ? s.delete(num) : s.add(num); return s; });
 
           // All selectable numbers for alterações (caps + subcaps)
           const allSelectableNums = Array.from(allSubcapsMap.entries())
