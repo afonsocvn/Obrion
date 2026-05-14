@@ -885,10 +885,12 @@ export default function OrcamentosPage() {
         saveOrcamentosLS(dbData);
       } else {
         // First time / DB empty for this context: migrate local-only records
-        const local = loadOrcamentosLS();
+        const local = loadOrcamentosLS().filter(o => !deletedIds.has(o.id));
         if (local.length > 0) {
           setOrcamentos(local);
           await migrateLocalToSupabase(local, user.id, workspaceId);
+        } else {
+          setOrcamentos([]);
         }
       }
       setLoadingData(false);
@@ -1123,6 +1125,8 @@ export default function OrcamentosPage() {
 
   const eliminarOrcamento = (id: string) => {
     markDeletedId(id);
+    // Imediatamente remove do localStorage antes do state update
+    saveOrcamentosLS(loadOrcamentosLS().filter(o => o.id !== id));
     updateOrcamentos(prev => prev.filter(o => o.id !== id));
     toast.success('Projeto eliminado.');
   };
@@ -3407,7 +3411,7 @@ export default function OrcamentosPage() {
             Orçamentos ({selectedOrc.projetos.length})
           </h2>
           <div className="flex gap-2">
-            {selectedOrc.projetos.length >= 2 && (
+            {selectedOrc.projetos.length >= 1 && (
               <Button size="sm" variant="outline" className="gap-1.5 h-8 border-blue-300 text-blue-700 hover:bg-blue-50"
                 onClick={irParaComparacaoOrc}>
                 <BarChart2 className="h-3.5 w-3.5" />
