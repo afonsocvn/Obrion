@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { v4, formatCurrency, cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
@@ -336,7 +336,10 @@ function calcLinhasTotal(linhas: LinhaOrcamento[]): number {
   return processed.filter(l => l.nivel === 1 && l.numero).reduce((s, l) => s + l.total, 0);
 }
 function getCenarioCapituloTotal(cap: CenarioCapitulo, alteracoes: CenarioAlteracao[]): number {
-  return cap.totalBase + alteracoes.filter(a => a.capitulo === cap.numero).reduce((s, a) => s + a.valor, 0);
+  // Include alterações targeting this chapter OR any of its sub-chapters (e.g. "1" includes "1.1", "1.2")
+  return cap.totalBase + alteracoes
+    .filter(a => a.capitulo === cap.numero || a.capitulo.startsWith(cap.numero + '.'))
+    .reduce((s, a) => s + a.valor, 0);
 }
 function getProjetoTotal(p: Projeto): number {
   if (p.tipo === 'cenario' && p.cenarioConfig) {
@@ -442,12 +445,33 @@ const VERSAO_CORES: Record<string, string> = {
 };
 const versaoCor = (v: string) => VERSAO_CORES[v] ?? 'bg-slate-100 text-slate-600 border-slate-200';
 
-interface CapTotal { numero: string; descricao: string; total: number; }
+interface CapTotal { numero: string; descricao: string; total: number; nivel: number; }
+// Returns totals for all levels (nivel 1, 2, 3...) from a project's linhas
+function getCapituloTotaisAll(proj: Projeto): CapTotal[] {
+  if (proj.tipo === 'cenario') return [];
+  const map = new Map<string, { descricao: string; total: number; nivel: number }>();
+  for (const f of proj.ficheiros) {
+    const processed = processarHierarquia(
+      f.linhas.map(l => ({ ...l, numero: normalizeNumero(l.numero), nivel: getNivel(l.numero) }))
+    );
+    for (const l of processed) {
+      if (l.numero && l.nivel >= 1) {
+        const ex = map.get(l.numero);
+        if (ex) ex.total += l.total;
+        else map.set(l.numero, { descricao: l.descricao, total: l.total, nivel: l.nivel });
+      }
+    }
+  }
+  return Array.from(map.entries())
+    .map(([numero, { descricao, total, nivel }]) => ({ numero, descricao, total, nivel }))
+    .sort((a, b) => sortNumericamente(a.numero, b.numero));
+}
+
 function getCapituloTotais(proj: Projeto): CapTotal[] {
   if (proj.tipo === 'cenario' && proj.cenarioConfig) {
     const alt = proj.cenarioConfig.alteracoes ?? [];
     return proj.cenarioConfig.capitulos
-      .map(cap => ({ numero: cap.numero, descricao: cap.descricao, total: getCenarioCapituloTotal(cap, alt) }))
+      .map(cap => ({ numero: cap.numero, descricao: cap.descricao, total: getCenarioCapituloTotal(cap, alt), nivel: 1 }))
       .sort((a, b) => parseFloat(a.numero) - parseFloat(b.numero));
   }
   const map = new Map<string, { descricao: string; total: number }>();
@@ -464,7 +488,7 @@ function getCapituloTotais(proj: Projeto): CapTotal[] {
     }
   }
   return Array.from(map.entries())
-    .map(([numero, { descricao, total }]) => ({ numero, descricao, total }))
+    .map(([numero, { descricao, total }]) => ({ numero, descricao, total, nivel: 1 }))
     .sort((a, b) => parseFloat(a.numero) - parseFloat(b.numero));
 }
 
@@ -3643,6 +3667,30 @@ export default function OrcamentosPage() {
           const totalCenario = editCaps.reduce((s, c) => s + getCenarioCapituloTotal(c, editAlt), 0);
           const totalAlteracoes = editAlt.reduce((s, a) => s + a.valor, 0);
 
+          // All subcapítulos from base projects (for display + alterações select)
+          const allSubcapsMap = new Map<string, { descricao: string; mediaTotal: number; nivel: number }>();
+          baseProjs.forEach(p => {
+            getCapituloTotaisAll(p).forEach(c => {
+              if (!allSubcapsMap.has(c.numero)) {
+                allSubcapsMap.set(c.numero, { descricao: c.descricao, mediaTotal: 0, nivel: c.nivel });
+              }
+            });
+          });
+          // Compute average per subcapítulo across base projects
+          allSubcapsMap.forEach((val, num) => {
+            const vals = baseProjs.map(p => getCapituloTotaisAll(p).find(c => c.numero === num)?.total ?? 0).filter(v => v > 0);
+            val.mediaTotal = vals.length > 0 ? Math.round(vals.reduce((s, v) => s + v, 0) / vals.length) : 0;
+          });
+
+          // Expanded chapters state (for subcap display in table)
+          const [expandedCenarioCaps, setExpandedCenarioCaps] = React.useState<Set<string>>(new Set());
+          const toggleCenarioCap = (num: string) =>
+            setExpandedCenarioCaps(prev => { const s = new Set(prev); s.has(num) ? s.delete(num) : s.add(num); return s; });
+
+          // All selectable numbers for alterações (caps + subcaps)
+          const allSelectableNums = Array.from(allSubcapsMap.entries())
+            .sort((a, b) => sortNumericamente(a[0], b[0]));
+
           const TIPOS_ALT: { tipo: TipoAlteracao; label: string; cor: string; defaultSignal: number }[] = [
             { tipo: 'otimizacao',   label: 'Otimizações',  cor: 'text-green-700 bg-green-50 border-green-200', defaultSignal: -1 },
             { tipo: 'por_adicionar', label: 'Por adicionar', cor: 'text-blue-700 bg-blue-50 border-blue-200',   defaultSignal: 1 },
@@ -3673,12 +3721,13 @@ export default function OrcamentosPage() {
                 </div>
               </div>
 
-              {/* ── Tabela de capítulos ── */}
+              {/* ── Tabela de capítulos + subcapítulos ── */}
               <Card>
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs border-collapse">
                     <thead>
                       <tr className="bg-muted/50 border-b text-muted-foreground">
+                        <th className="w-6 px-1" />
                         <th className="px-3 py-2 text-left w-14">Cap.</th>
                         <th className="px-3 py-2 text-left">Descrição</th>
                         <th className="px-3 py-2 text-left w-44">Fonte</th>
@@ -3689,44 +3738,80 @@ export default function OrcamentosPage() {
                     </thead>
                     <tbody>
                       {editCaps.map((cap, idx) => {
-                        const capAlt = editAlt.filter(a => a.capitulo === cap.numero);
+                        const capAlt = editAlt.filter(a => a.capitulo === cap.numero || a.capitulo.startsWith(cap.numero + '.'));
                         const altTotal = capAlt.reduce((s, a) => s + a.valor, 0);
                         const capTotal = getCenarioCapituloTotal(cap, editAlt);
+                        const expanded = expandedCenarioCaps.has(cap.numero);
+                        // Subcapítulos for this chapter
+                        const subcaps = allSelectableNums.filter(([num]) =>
+                          num.startsWith(cap.numero + '.') && getNivel(num) === 2
+                        );
+                        const hasSubcaps = subcaps.length > 0;
                         return (
-                          <tr key={cap.numero} className="border-b hover:bg-muted/10">
-                            <td className="px-3 py-2 font-mono font-bold text-slate-700">{cap.numero}</td>
-                            <td className="px-3 py-2 font-semibold truncate max-w-[200px]">{cap.descricao}</td>
-                            <td className="px-3 py-2">
-                              <Select value={cap.fonte} onValueChange={v => {
-                                const vals = baseProjs.map(p => getCapituloTotais(p).find(c => c.numero === cap.numero)?.total ?? 0).filter(x => x > 0);
-                                const total = v === 'media'
-                                  ? Math.round(vals.reduce((s, x) => s + x, 0) / (vals.length || 1))
-                                  : (getCapituloTotais(baseProjs.find(p => p.id === v)!).find(c => c.numero === cap.numero)?.total ?? 0);
-                                setCenarioEditCaps(prev => prev.map((c, i) => i === idx ? { ...c, fonte: v, totalBase: total } : c));
-                              }}>
-                                <SelectTrigger className="h-7 text-xs font-normal"><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="media" className="text-xs">Média</SelectItem>
-                                  {baseProjs.map(p => (
-                                    <SelectItem key={p.id} value={p.id} className="text-xs">{p.nome}{p.versao && ` (${p.versao})`}</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </td>
-                            <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(cap.totalBase)}</td>
-                            <td className={cn('px-3 py-2 text-right tabular-nums text-xs',
-                              altTotal > 0 ? 'text-red-600' : altTotal < 0 ? 'text-green-600' : 'text-muted-foreground/40')}>
-                              {altTotal !== 0 ? `${altTotal > 0 ? '+' : ''}${formatCurrency(altTotal)}` : '—'}
-                              {capAlt.length > 0 && <span className="ml-1 text-[10px]">({capAlt.length})</span>}
-                            </td>
-                            <td className="px-3 py-2 text-right tabular-nums font-bold">{formatCurrency(capTotal)}</td>
-                          </tr>
+                          <React.Fragment key={cap.numero}>
+                            <tr className="border-b bg-slate-50 font-semibold hover:bg-slate-100">
+                              <td className="px-1 py-1.5 text-center">
+                                {hasSubcaps && (
+                                  <button onClick={() => toggleCenarioCap(cap.numero)}
+                                    className="h-4 w-4 rounded flex items-center justify-center mx-auto text-muted-foreground hover:text-foreground">
+                                    {expanded ? <Minus className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
+                                  </button>
+                                )}
+                              </td>
+                              <td className="px-3 py-2 font-mono font-bold text-slate-700">{cap.numero}</td>
+                              <td className="px-3 py-2 truncate max-w-[200px]">{cap.descricao}</td>
+                              <td className="px-3 py-2">
+                                <Select value={cap.fonte} onValueChange={v => {
+                                  const vals = baseProjs.map(p => getCapituloTotais(p).find(c => c.numero === cap.numero)?.total ?? 0).filter(x => x > 0);
+                                  const total = v === 'media'
+                                    ? Math.round(vals.reduce((s, x) => s + x, 0) / (vals.length || 1))
+                                    : (getCapituloTotais(baseProjs.find(p => p.id === v)!).find(c => c.numero === cap.numero)?.total ?? 0);
+                                  setCenarioEditCaps(prev => prev.map((c, i) => i === idx ? { ...c, fonte: v, totalBase: total } : c));
+                                }}>
+                                  <SelectTrigger className="h-7 text-xs font-normal"><SelectValue /></SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="media" className="text-xs">Média</SelectItem>
+                                    {baseProjs.map(p => (
+                                      <SelectItem key={p.id} value={p.id} className="text-xs">{p.nome}{p.versao && ` (${p.versao})`}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </td>
+                              <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(cap.totalBase)}</td>
+                              <td className={cn('px-3 py-2 text-right tabular-nums',
+                                altTotal > 0 ? 'text-red-600' : altTotal < 0 ? 'text-green-600' : 'text-muted-foreground/40')}>
+                                {altTotal !== 0 ? `${altTotal > 0 ? '+' : ''}${formatCurrency(altTotal)}` : '—'}
+                                {capAlt.length > 0 && <span className="ml-1 text-[10px]">({capAlt.length})</span>}
+                              </td>
+                              <td className="px-3 py-2 text-right tabular-nums font-bold">{formatCurrency(capTotal)}</td>
+                            </tr>
+                            {expanded && subcaps.map(([subNum, subInfo]) => {
+                              const subAlt = editAlt.filter(a => a.capitulo === subNum);
+                              const subAltTotal = subAlt.reduce((s, a) => s + a.valor, 0);
+                              return (
+                                <tr key={subNum} className="border-b hover:bg-muted/10">
+                                  <td />
+                                  <td className="px-3 py-1.5 font-mono text-slate-500 pl-7">{subNum}</td>
+                                  <td className="px-3 py-1.5 text-muted-foreground truncate max-w-[200px]">{subInfo.descricao}</td>
+                                  <td className="px-3 py-1.5 text-xs text-muted-foreground italic">Média</td>
+                                  <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{subInfo.mediaTotal > 0 ? formatCurrency(subInfo.mediaTotal) : '—'}</td>
+                                  <td className={cn('px-3 py-1.5 text-right tabular-nums text-xs',
+                                    subAltTotal > 0 ? 'text-red-600' : subAltTotal < 0 ? 'text-green-600' : 'text-muted-foreground/40')}>
+                                    {subAltTotal !== 0 ? `${subAltTotal > 0 ? '+' : ''}${formatCurrency(subAltTotal)}` : '—'}
+                                  </td>
+                                  <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">
+                                    {subInfo.mediaTotal + subAltTotal !== 0 ? formatCurrency(subInfo.mediaTotal + subAltTotal) : '—'}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </React.Fragment>
                         );
                       })}
                     </tbody>
                     <tfoot className="border-t-2 bg-muted/30">
                       <tr>
-                        <td colSpan={3} className="px-3 py-2 font-bold text-sm">Total</td>
+                        <td colSpan={4} className="px-3 py-2 font-bold text-sm">Total</td>
                         <td className="px-3 py-2 text-right font-semibold tabular-nums text-sm">
                           {formatCurrency(editCaps.reduce((s, c) => s + c.totalBase, 0))}
                         </td>
@@ -3777,13 +3862,15 @@ export default function OrcamentosPage() {
                                   <Select value={aj.capitulo} onValueChange={v =>
                                     setCenarioEditAlteracoes(prev => prev.map(a => a.id === aj.id ? { ...a, capitulo: v } : a))
                                   }>
-                                    <SelectTrigger className="h-7 w-16 text-xs font-mono shrink-0">
+                                    <SelectTrigger className="h-7 w-20 text-xs font-mono shrink-0">
                                       <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
-                                      {editCaps.map(c => (
-                                        <SelectItem key={c.numero} value={c.numero} className="text-xs font-mono">
-                                          {c.numero}
+                                      {allSelectableNums.map(([num, info]) => (
+                                        <SelectItem key={num} value={num} className="text-xs font-mono">
+                                          <span style={{ paddingLeft: `${(info.nivel - 1) * 10}px` }}>
+                                            {num} {info.nivel === 1 ? '' : <span className="text-muted-foreground">· {info.descricao.slice(0, 20)}</span>}
+                                          </span>
                                         </SelectItem>
                                       ))}
                                     </SelectContent>
