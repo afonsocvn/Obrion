@@ -112,7 +112,7 @@ interface FilePendente {
   id: string; nome: string; nomeDisplay: string;
   workbook: XLSX.WorkBook; folhaNomes: string[];
   folhaSelecionada: string; rawRows: unknown[][]; colLabels: string[];
-  mapeamento: ColunaRole[]; linhaInicio: number;
+  mapeamento: ColunaRole[]; linhaInicio: number; linhaFim: number;
   linhasProcessadas: LinhaOrcamento[]; total: number; configured: boolean;
 }
 
@@ -1051,6 +1051,7 @@ export default function OrcamentosPage() {
   const [colLabels, setColLabels]               = useState<string[]>([]);
   const [mapeamento, setMapeamento]             = useState<ColunaRole[]>([]);
   const [linhaInicio, setLinhaInicio]           = useState(1);
+  const [linhaFim, setLinhaFim]                 = useState(0); // 0 = sem limite
   const [isDragging, setIsDragging]             = useState(false);
   const fileRef                                 = useRef<HTMLInputElement>(null);
 
@@ -1300,7 +1301,7 @@ export default function OrcamentosPage() {
               workbook: null as unknown as XLSX.WorkBook, folhaNomes: ['PDF'],
               folhaSelecionada: 'PDF', rawRows: rows as unknown[][], colLabels: makeLabels(maxCols),
               mapeamento: new Array(maxCols).fill('ignorar') as ColunaRole[],
-              linhaInicio: 1, linhasProcessadas: [], total: 0, configured: false,
+              linhaInicio: 1, linhaFim: 0, linhasProcessadas: [], total: 0, configured: false,
             });
           } else {
             const wb      = XLSX.read(buf, { type: 'array' });
@@ -1320,7 +1321,7 @@ export default function OrcamentosPage() {
               id: v4(), nome: file.name, nomeDisplay: file.name.replace(/\.[^.]+$/, ''),
               workbook: wb, folhaNomes: wb.SheetNames,
               folhaSelecionada, rawRows, colLabels, mapeamento,
-              linhaInicio: 1, linhasProcessadas: [], total: 0, configured: false,
+              linhaInicio: 1, linhaFim: 0, linhasProcessadas: [], total: 0, configured: false,
             });
           }
         } catch { toast.error(`Erro ao ler ${file.name}.`); resolve(null); }
@@ -1351,7 +1352,7 @@ export default function OrcamentosPage() {
     setFolhaSelecionada(f.folhaSelecionada); setWorkbook(f.workbook);
     setFolhaNomes(f.folhaNomes); setRawRows(f.rawRows); setColLabels(f.colLabels);
     setMapeamento(f.mapeamento.length > 0 ? f.mapeamento : new Array(f.colLabels.length).fill('ignorar') as ColunaRole[]);
-    setLinhaInicio(f.linhaInicio); setLinhasProcessadas(f.linhasProcessadas);
+    setLinhaInicio(f.linhaInicio); setLinhaFim(f.linhaFim ?? 0); setLinhasProcessadas(f.linhasProcessadas);
     setDismissedErrors(new Set());
     if (f.rawRows.length > 0) setView('mapeamento');
     else if (f.folhaNomes.length > 1) setView('folha');
@@ -1365,7 +1366,7 @@ export default function OrcamentosPage() {
     setBatchFiles(prev => prev.map(f =>
       f.id === batchAtivo ? {
         ...f, nomeDisplay: nomeDisplay.trim(), folhaSelecionada,
-        rawRows, colLabels, mapeamento, linhaInicio,
+        rawRows, colLabels, mapeamento, linhaInicio, linhaFim,
         linhasProcessadas, total: totalProcessado, configured: true,
       } : f,
     ));
@@ -1405,7 +1406,7 @@ export default function OrcamentosPage() {
     setMapeamento(prev => { const n = [...prev]; n[i] = role; return n; });
 
   const processarOrcamento = () => {
-    const linhas    = parsearLinhas(rawRows.slice(linhaInicio - 1), mapeamento);
+    const linhas    = parsearLinhas(rawRows.slice(linhaInicio - 1, linhaFim > 0 ? linhaFim : undefined), mapeamento);
     const validadas = processarHierarquia(linhas);
     setLinhasProcessadas(validadas); setDismissedErrors(new Set()); setView('preview');
   };
@@ -1633,20 +1634,34 @@ export default function OrcamentosPage() {
           ]} />
         </div>
         <Card className="mb-4">
-          <CardContent className="py-4 flex flex-wrap items-center gap-4">
-            <Label className="shrink-0 font-medium">Dados começam na linha:</Label>
-            <div className="flex items-center gap-1.5">
-              <Button variant="outline" size="sm" className="h-8 w-8 p-0"
-                onClick={() => setLinhaInicio(l => Math.max(1, l - 1))}>
-                <ChevronUp className="h-3.5 w-3.5" />
-              </Button>
-              <span className="w-10 text-center font-mono font-semibold text-sm">{linhaInicio}</span>
-              <Button variant="outline" size="sm" className="h-8 w-8 p-0"
-                onClick={() => setLinhaInicio(l => Math.min(rawRows.length, l + 1))}>
-                <ChevronDown className="h-3.5 w-3.5" />
-              </Button>
+          <CardContent className="py-4 flex flex-wrap items-center gap-6">
+            <div className="flex items-center gap-2">
+              <Label className="shrink-0 font-medium text-sm">Dados começam na linha:</Label>
+              <input
+                type="number"
+                min={1}
+                max={rawRows.length}
+                value={linhaInicio}
+                onChange={e => setLinhaInicio(Math.max(1, parseInt(e.target.value) || 1))}
+                className="h-8 w-16 rounded-md border border-input bg-background px-2 text-sm font-mono text-center"
+              />
             </div>
-            <p className="text-xs text-muted-foreground">Linha azul = início dos dados.</p>
+            <div className="flex items-center gap-2">
+              <Label className="shrink-0 font-medium text-sm">Acabam na linha:</Label>
+              <input
+                type="number"
+                min={linhaInicio}
+                max={rawRows.length}
+                value={linhaFim || ''}
+                placeholder="fim"
+                onChange={e => {
+                  const v = parseInt(e.target.value);
+                  setLinhaFim(isNaN(v) ? 0 : Math.min(rawRows.length, Math.max(linhaInicio, v)));
+                }}
+                className="h-8 w-16 rounded-md border border-input bg-background px-2 text-sm font-mono text-center"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">Azul = início · Laranja = fim · Vazio = até ao final.</p>
           </CardContent>
         </Card>
         <Card className="mb-4 overflow-hidden">
@@ -1672,15 +1687,18 @@ export default function OrcamentosPage() {
                 </tr>
               </thead>
               <tbody>
-                {rawRows.slice(0, 16).map((row, ri) => {
+                {rawRows.slice(0, linhaFim > 0 ? Math.min(linhaFim + 2, rawRows.length) : Math.min(20, rawRows.length)).map((row, ri) => {
                   const arr = row as unknown[];
-                  const isIgnored = ri + 1 < linhaInicio;
-                  const isStart   = ri + 1 === linhaInicio;
+                  const isIgnoredBefore = ri + 1 < linhaInicio;
+                  const isIgnoredAfter  = linhaFim > 0 && ri + 1 > linhaFim;
+                  const isStart = ri + 1 === linhaInicio;
+                  const isEnd   = linhaFim > 0 && ri + 1 === linhaFim;
                   return (
                     <tr key={ri} className={cn(
                       'border-b transition-colors',
-                      isIgnored ? 'opacity-35 bg-muted/20' : 'hover:bg-muted/10',
-                      isStart   ? 'bg-blue-50 ring-1 ring-inset ring-blue-300' : '',
+                      isIgnoredBefore || isIgnoredAfter ? 'opacity-35 bg-muted/20' : 'hover:bg-muted/10',
+                      isStart ? 'bg-blue-50 ring-1 ring-inset ring-blue-300' : '',
+                      isEnd   ? 'bg-orange-50 ring-1 ring-inset ring-orange-300' : '',
                     )}>
                       <td className="px-3 py-1.5 font-mono text-muted-foreground">{ri + 1}</td>
                       {colLabels.map((_, ci) => (
@@ -1692,14 +1710,17 @@ export default function OrcamentosPage() {
                     </tr>
                   );
                 })}
-                {rawRows.length > 16 && (
-                  <tr>
-                    <td colSpan={colLabels.length + 1}
-                      className="px-3 py-2 text-center text-muted-foreground italic">
-                      … e mais {rawRows.length - 16} linhas
-                    </td>
-                  </tr>
-                )}
+                {(() => {
+                  const shown = linhaFim > 0 ? Math.min(linhaFim + 2, rawRows.length) : Math.min(20, rawRows.length);
+                  return rawRows.length > shown ? (
+                    <tr>
+                      <td colSpan={colLabels.length + 1}
+                        className="px-3 py-2 text-center text-muted-foreground italic">
+                        … e mais {rawRows.length - shown} linhas (total: {rawRows.length})
+                      </td>
+                    </tr>
+                  ) : null;
+                })()}
               </tbody>
             </table>
           </div>
