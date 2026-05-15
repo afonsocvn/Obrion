@@ -1166,6 +1166,9 @@ export default function OrcamentosPage() {
   const [cenarioEditCaps, setCenarioEditCaps]         = useState<CenarioCapitulo[]>([]);
   const [cenarioEditAlteracoes, setCenarioEditAlteracoes] = useState<CenarioAlteracao[]>([]);
   const [cenarioEditOcultos, setCenarioEditOcultos]   = useState<Set<string>>(new Set());
+  // Tracks which project ID we last explicitly initialised the edit state for.
+  // Prevents the data-load effect from overwriting in-progress edits.
+  const cenarioInitRef = useRef<string | null>(null);
 
   const toggleCapExpand = (cap: string) =>
     setExpandedCaps(prev => { const s = new Set(prev); s.has(cap) ? s.delete(cap) : s.add(cap); return s; });
@@ -1236,6 +1239,17 @@ export default function OrcamentosPage() {
   // Derived
   const selectedOrc  = orcamentos.find(o => o.id === selectedOrcId) ?? null;
   const selectedProj = selectedOrc?.projetos.find(p => p.id === selectedProjId) ?? null;
+
+  // Re-sync cenário edit state when Supabase data arrives after page reload with saved nav.
+  // irParaProjeto sets cenarioInitRef so this effect skips when navigating normally.
+  useEffect(() => {
+    if (!selectedProj || selectedProj.tipo !== 'cenario' || !selectedProj.cenarioConfig) return;
+    if (cenarioInitRef.current === selectedProj.id) return;
+    cenarioInitRef.current = selectedProj.id;
+    setCenarioEditCaps(JSON.parse(JSON.stringify(selectedProj.cenarioConfig.capitulos)));
+    setCenarioEditAlteracoes(JSON.parse(JSON.stringify(selectedProj.cenarioConfig.alteracoes ?? [])));
+    setCenarioEditOcultos(new Set(selectedProj.cenarioConfig.capitulosOcultos ?? []));
+  }, [selectedProj]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Memoize heavy chapter totals per project — avoids re-running processarHierarquia
   // on every state change (e.g. ignoredSubNums toggle)
@@ -1389,6 +1403,7 @@ export default function OrcamentosPage() {
     setProjetoModo('consolidado');
     const proj = selectedOrc?.projetos.find(p => p.id === projId);
     if (proj?.tipo === 'cenario' && proj.cenarioConfig) {
+      cenarioInitRef.current = projId;
       setCenarioEditCaps(JSON.parse(JSON.stringify(proj.cenarioConfig.capitulos)));
       setCenarioEditAlteracoes(JSON.parse(JSON.stringify(proj.cenarioConfig.alteracoes ?? [])));
       setCenarioEditOcultos(new Set(proj.cenarioConfig.capitulosOcultos ?? []));
