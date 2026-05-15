@@ -4064,8 +4064,17 @@ export default function OrcamentosPage() {
             .filter(a => !editOcultos.has(a.capitulo.split('.')[0]))
             .reduce((s, a) => s + a.valor, 0);
 
-          // Use memoized subcap data (computed at component level)
-          const { allSubcapsMap, allSelectableNums } = cenarioSubcaps;
+          // Use memoized subcap data (computed at component level).
+          // Always include level-1 chapters from editCaps so the dropdown is never empty,
+          // even when the base-project ficheiros haven't loaded yet.
+          const { allSubcapsMap } = cenarioSubcaps;
+          const allSelectableNums: [string, { descricao: string; mediaTotal: number; nivel: number }][] = (() => {
+            const base = new Map(cenarioSubcaps.allSelectableNums);
+            editCaps.forEach(c => {
+              if (!base.has(c.numero)) base.set(c.numero, { descricao: c.descricao, mediaTotal: c.totalBase, nivel: 1 });
+            });
+            return Array.from(base.entries()).sort((a, b) => sortNumericamente(a[0], b[0]));
+          })();
 
           const TIPOS_ALT: { tipo: TipoAlteracao; label: string; cor: string; defaultSignal: number }[] = [
             { tipo: 'otimizacao',   label: 'Otimizações',  cor: 'text-green-700 bg-green-50 border-green-200', defaultSignal: -1 },
