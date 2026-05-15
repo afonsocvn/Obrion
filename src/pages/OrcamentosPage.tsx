@@ -3902,44 +3902,39 @@ export default function OrcamentosPage() {
       if (existing) existing.remove();
       const style = document.createElement('style');
       style.id = '__projeto_print_style';
+      const isCenario = selectedProj.tipo === 'cenario';
+      const R = isCenario ? '#cenario-print-section' : '#projeto-print-area';
       style.textContent = `
         @media print {
-          @page { margin: 12mm 14mm; size: A4 portrait; }
+          @page { margin: 5mm 15mm; size: A4 portrait; }
           body { visibility: hidden !important; background: white !important; }
-          #projeto-print-area { visibility: visible !important; position: absolute; inset: 0; }
-          #projeto-print-area * { visibility: visible !important; }
-          #projeto-print-area { font-size: 9.5px !important; line-height: 1.4 !important; color: #111827 !important; width: 100% !important; }
-          #projeto-print-area button, #projeto-print-area [role="button"],
-          #projeto-print-area [data-radix-select-trigger], #projeto-print-area select { display: none !important; }
-          #projeto-print-area [class*="rounded"] { break-inside: avoid; page-break-inside: avoid; border: 1px solid #e5e7eb !important; box-shadow: none !important; margin-bottom: 5mm !important; }
-          #projeto-print-area table { border-collapse: collapse !important; width: 100% !important; font-size: 8.5px !important; }
-          #projeto-print-area thead { display: table-header-group; }
-          #projeto-print-area th { background: #f1f5f9 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; padding: 3px 6px !important; border: 1px solid #cbd5e1 !important; font-weight: 600 !important; }
-          #projeto-print-area td { padding: 2.5px 6px !important; border: 1px solid #e2e8f0 !important; }
-          #projeto-print-area tbody tr:nth-child(even) { background: #f8fafc !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          #projeto-print-area .recharts-responsive-container { break-inside: avoid !important; overflow: visible !important; }
-          #projeto-print-area .recharts-wrapper { overflow: visible !important; }
-          #projeto-print-area .overflow-x-auto,
-          #projeto-print-area [class*="overflow-x-auto"],
-          #projeto-print-area [class*="overflow-auto"] { overflow: visible !important; max-height: none !important; }
-          #projeto-print-area [class*="text-green"] { color: #15803d !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          #projeto-print-area [class*="text-red"]   { color: #b91c1c !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          #projeto-print-area [class*="text-blue"]  { color: #1d4ed8 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          #projeto-print-area [class*="text-purple"]{ color: #7c3aed !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          #projeto-print-area [class*="bg-green"]   { background-color: #dcfce7 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          #projeto-print-area [class*="bg-red"]     { background-color: #fee2e2 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          #projeto-print-area [class*="bg-blue"]    { background-color: #dbeafe !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          #projeto-print-area [class*="bg-slate"]   { background-color: #f1f5f9 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          #projeto-print-area [class*="text-sm"]  { font-size: 9px !important; }
-          #projeto-print-area [class*="text-xs"]  { font-size: 8px !important; }
-          #projeto-print-area [class*="text-lg"]  { font-size: 12px !important; }
-          #projeto-print-area [class*="text-xl"]  { font-size: 13px !important; }
-          #projeto-print-area [class*="text-2xl"] { font-size: 15px !important; }
-          #projeto-print-area [class*="px-5"] { padding-left: 8px !important; padding-right: 8px !important; }
-          #projeto-print-area [class*="px-4"] { padding-left: 6px !important; padding-right: 6px !important; }
-          #projeto-print-area [class*="py-4"] { padding-top: 4px !important; padding-bottom: 4px !important; }
-          #projeto-print-area [class*="mb-5"] { margin-bottom: 4mm !important; }
-          #projeto-print-area [class*="mb-6"] { margin-bottom: 5mm !important; }
+          ${R} { visibility: visible !important; position: absolute; inset: 0; }
+          ${R} * { visibility: visible !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+          ${R} { font-size: 9.5px !important; line-height: 1.4 !important; color: #111827 !important; width: 100% !important; }
+          ${R} button, ${R} [role="button"],
+          ${R} [data-radix-select-trigger], ${R} select { display: none !important; }
+          ${R} .print-cap { display: inline-flex !important; }
+          .print-header { display: flex !important; justify-content: space-between; align-items: center; font-size: 8px !important; padding-bottom: 3mm; margin-bottom: 4mm; border-bottom: 0.5px solid #e2e8f0; color: #6b7280 !important; }
+          .print-header .print-header-name { font-weight: 700 !important; font-size: 10px !important; color: #111827 !important; }
+          ${R} [class*="rounded"] { break-inside: avoid; page-break-inside: avoid; border: 1px solid #e5e7eb !important; box-shadow: none !important; margin-bottom: 5mm !important; }
+          ${R} table { border-collapse: collapse !important; width: 100% !important; font-size: 8.5px !important; }
+          ${R} thead { display: table-header-group; }
+          ${R} th { -webkit-print-color-adjust: exact; print-color-adjust: exact; padding: 3px 6px !important; border: 1px solid #cbd5e1 !important; font-weight: 600 !important; }
+          ${R} td { padding: 2.5px 6px !important; border: 1px solid #e2e8f0 !important; }
+          ${R} tbody tr:nth-child(even) { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          ${R} .overflow-x-auto,
+          ${R} [class*="overflow-x-auto"],
+          ${R} [class*="overflow-auto"] { overflow: visible !important; max-height: none !important; }
+          ${R} [class*="text-sm"]  { font-size: 9px !important; }
+          ${R} [class*="text-xs"]  { font-size: 8px !important; }
+          ${R} [class*="text-lg"]  { font-size: 12px !important; }
+          ${R} [class*="text-xl"]  { font-size: 13px !important; }
+          ${R} [class*="text-2xl"] { font-size: 15px !important; }
+          ${R} [class*="px-5"] { padding-left: 8px !important; padding-right: 8px !important; }
+          ${R} [class*="px-4"] { padding-left: 6px !important; padding-right: 6px !important; }
+          ${R} [class*="py-4"] { padding-top: 4px !important; padding-bottom: 4px !important; }
+          ${R} [class*="mb-5"] { margin-bottom: 4mm !important; }
+          ${R} [class*="mb-6"] { margin-bottom: 5mm !important; }
           rect[fill], path[fill] { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
           [data-hidden-chart="true"] { display: none !important; }
         }
@@ -4063,6 +4058,13 @@ export default function OrcamentosPage() {
           const totalAlteracoes = editAlt
             .filter(a => !editOcultos.has(a.capitulo.split('.')[0]))
             .reduce((s, a) => s + a.valor, 0);
+          const totalBase = capsVisiveis.reduce((s, c) => s + c.totalBase, 0);
+          const totalOtimizacoes = editAlt
+            .filter(a => a.tipo === 'otimizacao' && !editOcultos.has(a.capitulo.split('.')[0]))
+            .reduce((s, a) => s + a.valor, 0);
+          const totalAposOtimizacoes = totalBase + totalOtimizacoes;
+          const diferenca = totalCenario - totalBase;
+          const diferencaPct = totalBase > 0 ? (diferenca / totalBase) * 100 : 0;
 
           // Use memoized subcap data (computed at component level).
           // Always include level-1 chapters from editCaps so the dropdown is never empty,
@@ -4089,7 +4091,12 @@ export default function OrcamentosPage() {
           };
 
           return (
-            <div className="mb-6 space-y-4">
+            <div id="cenario-print-section" className="mb-6 space-y-4">
+              {/* Cabeçalho de impressão — invisível em ecrã */}
+              <div className="print-header hidden">
+                <span className="print-header-name">Obrion</span>
+                <span>{new Date().toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+              </div>
               {/* Header */}
               <div className="flex items-center justify-between">
                 <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Cenário</h2>
@@ -4104,6 +4111,29 @@ export default function OrcamentosPage() {
                   <Button size="sm" className="h-7 text-xs gap-1.5" onClick={saveCenario}>
                     <Save className="h-3 w-3" /> Guardar
                   </Button>
+                </div>
+              </div>
+
+              {/* ── Métricas do Cenário ── */}
+              <div className="grid grid-cols-4 gap-2 text-xs">
+                <div className="rounded border bg-muted/30 px-3 py-2">
+                  <p className="text-muted-foreground">Base</p>
+                  <p className="font-bold tabular-nums mt-0.5">{formatCurrency(totalBase)}</p>
+                </div>
+                <div className="rounded border bg-muted/30 px-3 py-2">
+                  <p className="text-muted-foreground">Após Otimizações</p>
+                  <p className={cn('font-bold tabular-nums mt-0.5', totalOtimizacoes < 0 ? 'text-green-600' : totalOtimizacoes > 0 ? 'text-red-600' : '')}>{formatCurrency(totalAposOtimizacoes)}</p>
+                </div>
+                <div className="rounded border bg-muted/30 px-3 py-2">
+                  <p className="text-muted-foreground">Total Cenário</p>
+                  <p className="font-bold tabular-nums mt-0.5">{formatCurrency(totalCenario)}</p>
+                </div>
+                <div className="rounded border bg-muted/30 px-3 py-2">
+                  <p className="text-muted-foreground">Diferença</p>
+                  <p className={cn('font-bold tabular-nums mt-0.5', diferenca < 0 ? 'text-green-600' : diferenca > 0 ? 'text-red-600' : 'text-muted-foreground')}>
+                    {diferenca !== 0 ? `${diferenca > 0 ? '+' : ''}${formatCurrency(diferenca)}` : '—'}
+                    {diferenca !== 0 && <span className="ml-1 font-normal">({diferencaPct > 0 ? '+' : ''}{diferencaPct.toFixed(1)}%)</span>}
+                  </p>
                 </div>
               </div>
 
@@ -4268,7 +4298,7 @@ export default function OrcamentosPage() {
               </Card>
 
               {/* ── Alterações ao Orçamento ── */}
-              <div>
+              <div style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
                 <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
                   Alterações ao Orçamento
                 </h3>
@@ -4300,24 +4330,23 @@ export default function OrcamentosPage() {
                             <div className="space-y-1">
                               {items.map(aj => (
                                 <div key={aj.id} className="flex items-center gap-2">
+                                  <span className="print-cap hidden text-xs font-mono shrink-0 w-28 inline-flex items-center">{aj.capitulo}</span>
                                   <Select value={aj.capitulo} onValueChange={v =>
                                     setCenarioEditAlteracoes(prev => prev.map(a => a.id === aj.id ? { ...a, capitulo: v } : a))
                                   }>
-                                    <SelectTrigger className="h-7 w-20 text-xs font-mono shrink-0">
+                                    <SelectTrigger className="h-7 w-28 text-xs font-mono shrink-0">
                                       <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
                                       {allSelectableNums.map(([num, info]) => (
                                         <SelectItem key={num} value={num} className="text-xs font-mono">
-                                          <span style={{ paddingLeft: `${(info.nivel - 1) * 10}px` }}>
-                                            {num} {info.nivel === 1 ? '' : <span className="text-muted-foreground">· {info.descricao.slice(0, 20)}</span>}
-                                          </span>
+                                          {num}{info.nivel > 1 && <span className="text-muted-foreground ml-1">· {info.descricao.slice(0, 20)}</span>}
                                         </SelectItem>
                                       ))}
                                     </SelectContent>
                                   </Select>
                                   <Input
-                                    className="h-7 text-xs flex-1"
+                                    className="h-7 text-xs flex-1 min-w-0"
                                     placeholder="Descrição do artigo…"
                                     value={aj.descricao}
                                     onChange={e => setCenarioEditAlteracoes(prev => prev.map(a => a.id === aj.id ? { ...a, descricao: e.target.value } : a))}
