@@ -4059,10 +4059,6 @@ export default function OrcamentosPage() {
             .filter(a => !editOcultos.has(a.capitulo.split('.')[0]))
             .reduce((s, a) => s + a.valor, 0);
           const totalBase = capsVisiveis.reduce((s, c) => s + c.totalBase, 0);
-          const totalOtimizacoes = editAlt
-            .filter(a => a.tipo === 'otimizacao' && !editOcultos.has(a.capitulo.split('.')[0]))
-            .reduce((s, a) => s + a.valor, 0);
-          const totalAposOtimizacoes = totalBase + totalOtimizacoes;
           const diferenca = totalCenario - totalBase;
           const diferencaPct = totalBase > 0 ? (diferenca / totalBase) * 100 : 0;
 
@@ -4122,11 +4118,7 @@ export default function OrcamentosPage() {
                 </div>
                 <div className="rounded border bg-muted/30 px-3 py-2">
                   <p className="text-muted-foreground">Após Otimizações</p>
-                  <p className={cn('font-bold tabular-nums mt-0.5', totalOtimizacoes < 0 ? 'text-green-600' : totalOtimizacoes > 0 ? 'text-red-600' : '')}>{formatCurrency(totalAposOtimizacoes)}</p>
-                </div>
-                <div className="rounded border bg-muted/30 px-3 py-2">
-                  <p className="text-muted-foreground">Total Cenário</p>
-                  <p className="font-bold tabular-nums mt-0.5">{formatCurrency(totalCenario)}</p>
+                  <p className={cn('font-bold tabular-nums mt-0.5', diferenca < 0 ? 'text-green-600' : diferenca > 0 ? 'text-red-600' : '')}>{formatCurrency(totalCenario)}</p>
                 </div>
                 <div className="rounded border bg-muted/30 px-3 py-2">
                   <p className="text-muted-foreground">Diferença</p>
