@@ -3904,6 +3904,9 @@ export default function OrcamentosPage() {
           #projeto-print-area tbody tr:nth-child(even) { background: #f8fafc !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
           #projeto-print-area .recharts-responsive-container { break-inside: avoid !important; overflow: visible !important; }
           #projeto-print-area .recharts-wrapper { overflow: visible !important; }
+          #projeto-print-area .overflow-x-auto,
+          #projeto-print-area [class*="overflow-x-auto"],
+          #projeto-print-area [class*="overflow-auto"] { overflow: visible !important; max-height: none !important; }
           #projeto-print-area [class*="text-green"] { color: #15803d !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
           #projeto-print-area [class*="text-red"]   { color: #b91c1c !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
           #projeto-print-area [class*="text-blue"]  { color: #1d4ed8 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
